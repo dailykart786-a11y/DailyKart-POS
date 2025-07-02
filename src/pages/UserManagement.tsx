@@ -4,22 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { 
-  Users, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Shield,
-  UserCheck,
-  Settings,
-  Key
-} from "lucide-react";
+import { Plus, Users, Shield, Eye, EyeOff, Copy, Mail } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -28,45 +18,105 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
-interface UserProfile {
+interface Profile {
   id: string;
   user_id: string;
-  full_name: string;
+  full_name: string | null;
+  role: string | null;
+  created_at: string | null;
+}
+
+interface UserRole {
+  user_id: string;
   role: string;
-  created_at: string;
+}
+
+interface InvitedUser {
+  id: string;
+  email: string;
+  role: string;
+  invited_at: string;
+  used_at: string | null;
+  temp_password: string;
 }
 
 export default function UserManagement() {
   const { user } = useAuth();
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
+  const [invitedUsers, setInvitedUsers] = useState<InvitedUser[]>([]);
+  const [currentUserRole, setCurrentUserRole] = useState<string>("cashier");
   const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [newUser, setNewUser] = useState({
-    email: "",
-    password: "",
-    full_name: "",
-    role: "cashier"
-  });
+  const [showAddUser, setShowAddUser] = useState(false);
+  
+  // Form state
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserRole, setNewUserRole] = useState("cashier");
+  const [showPassword, setShowPassword] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState("");
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (user) {
+      fetchData();
+    }
+  }, [user]);
 
-  const fetchUsers = async () => {
+  const fetchData = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch current user role
+      const { data: currentRole } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user?.id)
+        .single();
+
+      setCurrentUserRole(currentRole?.role || "cashier");
+
+      // Only admins can see user management
+      if (currentRole?.role !== 'admin') {
+        return;
+      }
+
+      // Fetch all profiles
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setUsers(data || []);
+      if (profileError) throw profileError;
+
+      // Fetch all user roles
+      const { data: roleData, error: roleError } = await supabase
+        .from('user_roles')
+        .select('*');
+
+      if (roleError) throw roleError;
+
+      // Fetch invited users
+      const { data: invitedData, error: invitedError } = await supabase
+        .from('invited_users')
+        .select('*')
+        .order('invited_at', { ascending: false });
+
+      if (invitedError) throw invitedError;
+
+      setProfiles(profileData || []);
+      setUserRoles(roleData || []);
+      setInvitedUsers(invitedData || []);
     } catch (error) {
+      console.error('Error fetching data:', error);
       toast({
         title: "Error",
-        description: "Failed to fetch users",
+        description: "Failed to fetch user data",
         variant: "destructive"
       });
     } finally {
@@ -74,104 +124,93 @@ export default function UserManagement() {
     }
   };
 
-  const createUser = async () => {
-    try {
-      // Create user in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: newUser.email,
-        password: newUser.password,
-        user_metadata: {
-          full_name: newUser.full_name
-        }
+  const generatePassword = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    let password = '';
+    for (let i = 0; i < 12; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+  };
+
+  const handleInviteUser = async () => {
+    if (!newUserEmail || !newUserName) {
+      toast({
+        title: "Error",
+        description: "Please fill in all fields",
+        variant: "destructive"
       });
+      return;
+    }
 
-      if (authError) throw authError;
+    const tempPassword = generatePassword();
+    setGeneratedPassword(tempPassword);
 
-      // Update profile with role
-      if (authData.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ 
-            role: newUser.role,
-            full_name: newUser.full_name 
-          })
-          .eq('user_id', authData.user.id);
+    try {
+      // Create invitation record
+      const { error: inviteError } = await supabase
+        .from('invited_users')
+        .insert({
+          email: newUserEmail,
+          role: newUserRole,
+          invited_by: user?.id,
+          temp_password: tempPassword
+        });
 
-        if (profileError) throw profileError;
-      }
+      if (inviteError) throw inviteError;
 
       toast({
-        title: "Success",
-        description: "User created successfully"
+        title: "User Invited",
+        description: `${newUserEmail} has been invited. Share the temporary password with them.`
       });
 
-      setNewUser({ email: "", password: "", full_name: "", role: "cashier" });
-      setDialogOpen(false);
-      fetchUsers();
+      // Reset form
+      setNewUserEmail("");
+      setNewUserName("");
+      setNewUserRole("cashier");
+      setShowAddUser(false);
+      fetchData();
+
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to create user",
+        description: error.message || "Failed to invite user",
         variant: "destructive"
       });
     }
   };
 
-  const updateUserRole = async (userId: string, newRole: string) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ role: newRole })
-        .eq('user_id', userId);
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: "User role updated successfully"
-      });
-
-      fetchUsers();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update user role",
-        variant: "destructive"
-      });
-    }
+  const copyPassword = () => {
+    navigator.clipboard.writeText(generatedPassword);
+    toast({
+      title: "Copied",
+      description: "Password copied to clipboard"
+    });
   };
 
-  const getRoleBadgeVariant = (role: string) => {
+  const getUserRole = (userId: string) => {
+    return userRoles.find(role => role.user_id === userId)?.role || "cashier";
+  };
+
+  const getRoleBadgeColor = (role: string) => {
     switch (role) {
-      case 'admin':
-        return 'destructive';
-      case 'manager':
-        return 'default';
-      case 'cashier':
-        return 'secondary';
-      default:
-        return 'outline';
+      case 'admin': return 'bg-red-100 text-red-800';
+      case 'manager': return 'bg-blue-100 text-blue-800';
+      case 'cashier': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const getRoleIcon = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return <Shield className="h-3 w-3" />;
-      case 'manager':
-        return <Settings className="h-3 w-3" />;
-      case 'cashier':
-        return <UserCheck className="h-3 w-3" />;
-      default:
-        return <Users className="h-3 w-3" />;
-    }
-  };
-
-  if (loading) {
+  // Only admins can access this page
+  if (currentUserRole !== 'admin') {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-64">
-          Loading users...
+        <div className="text-center py-8">
+          <Shield className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Access Restricted</h2>
+          <p className="text-muted-foreground">
+            Only administrators can access user management.
+          </p>
         </div>
       </Layout>
     );
@@ -182,11 +221,10 @@ export default function UserManagement() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">User Management</h1>
+            <h2 className="text-2xl font-bold">User Management</h2>
             <p className="text-muted-foreground">Manage system users and their permissions</p>
           </div>
-          
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={showAddUser} onOpenChange={setShowAddUser}>
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -195,41 +233,31 @@ export default function UserManagement() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New User</DialogTitle>
+                <DialogTitle>Invite New User</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <div>
-                  <Label htmlFor="email">Email</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email Address *</Label>
                   <Input
                     id="email"
                     type="email"
-                    value={newUser.email}
-                    onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
                     placeholder="user@example.com"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="password">Password</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="name">Full Name *</Label>
                   <Input
-                    id="password"
-                    type="password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    placeholder="Minimum 6 characters"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="full_name">Full Name</Label>
-                  <Input
-                    id="full_name"
-                    value={newUser.full_name}
-                    onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })}
+                    id="name"
+                    value={newUserName}
+                    onChange={(e) => setNewUserName(e.target.value)}
                     placeholder="John Doe"
                   />
                 </div>
-                <div>
+                <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
-                  <Select value={newUser.role} onValueChange={(value) => setNewUser({ ...newUser, role: value })}>
+                  <Select value={newUserRole} onValueChange={setNewUserRole}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -240,154 +268,217 @@ export default function UserManagement() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button 
-                  onClick={createUser} 
-                  className="w-full"
-                  disabled={!newUser.email || !newUser.password || !newUser.full_name}
-                >
-                  Create User
+                <Button onClick={handleInviteUser} className="w-full">
+                  <Mail className="h-4 w-4 mr-2" />
+                  Send Invitation
                 </Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
 
-        {/* User Statistics */}
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">Total Users</span>
-              </div>
-              <div className="text-2xl font-bold">{users.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-destructive" />
-                <span className="text-sm font-medium">Admins</span>
-              </div>
-              <div className="text-2xl font-bold">
-                {users.filter(u => u.role === 'admin').length}
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Total Users</p>
+                  <p className="text-2xl font-bold">{profiles.length}</p>
+                </div>
+                <Users className="h-8 w-8 text-primary" />
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <Settings className="h-4 w-4 text-accent" />
-                <span className="text-sm font-medium">Managers</span>
-              </div>
-              <div className="text-2xl font-bold">
-                {users.filter(u => u.role === 'manager').length}
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Admins</p>
+                  <p className="text-2xl font-bold">
+                    {userRoles.filter(r => r.role === 'admin').length}
+                  </p>
+                </div>
+                <Shield className="h-8 w-8 text-red-500" />
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Cashiers</span>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Managers</p>
+                  <p className="text-2xl font-bold">
+                    {userRoles.filter(r => r.role === 'manager').length}
+                  </p>
+                </div>
+                <Users className="h-8 w-8 text-blue-500" />
               </div>
-              <div className="text-2xl font-bold">
-                {users.filter(u => u.role === 'cashier').length}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Cashiers</p>
+                  <p className="text-2xl font-bold">
+                    {userRoles.filter(r => r.role === 'cashier').length}
+                  </p>
+                </div>
+                <Users className="h-8 w-8 text-green-500" />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Users Table */}
+        {/* Temporary Password Display */}
+        {generatedPassword && (
+          <Card className="bg-yellow-50 border-yellow-200">
+            <CardHeader>
+              <CardTitle className="text-yellow-800">Temporary Password Generated</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={generatedPassword}
+                  type={showPassword ? "text" : "password"}
+                  readOnly
+                  className="font-mono"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button variant="outline" size="icon" onClick={copyPassword}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-sm text-yellow-700 mt-2">
+                Share this password with the invited user. They can change it after first login.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Invited Users Table */}
+        {invitedUsers.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Pending Invitations</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Invited At</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invitedUsers.map((invite) => (
+                    <TableRow key={invite.id}>
+                      <TableCell>{invite.email}</TableCell>
+                      <TableCell>
+                        <Badge className={getRoleBadgeColor(invite.role)}>
+                          {invite.role.charAt(0).toUpperCase() + invite.role.slice(1)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {new Date(invite.invited_at).toLocaleDateString('en-IN')}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={invite.used_at ? "default" : "secondary"}>
+                          {invite.used_at ? "Accepted" : "Pending"}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* System Users Table */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              System Users
+              System Users ({profiles.length} users)
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>User ID</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((userProfile) => (
-                  <TableRow key={userProfile.id}>
-                    <TableCell className="font-medium">
-                      {userProfile.full_name || 'No name set'}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {userProfile.user_id.slice(0, 8)}...
-                    </TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={getRoleBadgeVariant(userProfile.role)}
-                        className="gap-1"
-                      >
-                        {getRoleIcon(userProfile.role)}
-                        {userProfile.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(userProfile.created_at).toLocaleDateString('en-IN')}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Select
-                          value={userProfile.role}
-                          onValueChange={(newRole) => updateUserRole(userProfile.user_id, newRole)}
-                          disabled={userProfile.user_id === user?.id} // Prevent self-role change
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="cashier">Cashier</SelectItem>
-                            <SelectItem value="manager">Manager</SelectItem>
-                            <SelectItem value="admin">Admin</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        
-                        {userProfile.user_id !== user?.id && (
-                          <Button variant="outline" size="icon" disabled>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-
-            {users.length === 0 && (
+            {loading ? (
+              <div className="text-center py-4">Loading users...</div>
+            ) : profiles.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No users found. Create your first user to get started.
+                No users found.
               </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>User ID</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {profiles.map((profile) => (
+                    <TableRow key={profile.id}>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{profile.full_name || "No Name"}</p>
+                          <p className="text-sm text-muted-foreground">ID: {profile.id.slice(0, 8)}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {profile.user_id.slice(0, 8)}...
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={getRoleBadgeColor(getUserRole(profile.user_id))}>
+                          {getUserRole(profile.user_id).charAt(0).toUpperCase() + getUserRole(profile.user_id).slice(1)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {profile.created_at 
+                          ? new Date(profile.created_at).toLocaleDateString('en-IN')
+                          : "N/A"
+                        }
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {getUserRole(profile.user_id) === 'admin' ? 'Admin' : 'User'}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
 
-        {/* Permission Matrix */}
+        {/* Role Permissions */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Key className="h-5 w-5" />
+              <Shield className="h-5 w-5" />
               Role Permissions
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full">
                 <thead>
-                  <tr className="border-b">
+                  <tr>
                     <th className="text-left p-2">Permission</th>
                     <th className="text-center p-2">Cashier</th>
                     <th className="text-center p-2">Manager</th>
@@ -395,37 +486,31 @@ export default function UserManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b">
+                  <tr>
                     <td className="p-2">Process Sales</td>
                     <td className="text-center p-2">✅</td>
                     <td className="text-center p-2">✅</td>
                     <td className="text-center p-2">✅</td>
                   </tr>
-                  <tr className="border-b">
+                  <tr>
                     <td className="p-2">Manage Products</td>
                     <td className="text-center p-2">❌</td>
                     <td className="text-center p-2">✅</td>
                     <td className="text-center p-2">✅</td>
                   </tr>
-                  <tr className="border-b">
-                    <td className="p-2">Manage Customers</td>
-                    <td className="text-center p-2">❌</td>
-                    <td className="text-center p-2">✅</td>
-                    <td className="text-center p-2">✅</td>
-                  </tr>
-                  <tr className="border-b">
+                  <tr>
                     <td className="p-2">View Reports</td>
                     <td className="text-center p-2">❌</td>
                     <td className="text-center p-2">✅</td>
                     <td className="text-center p-2">✅</td>
                   </tr>
-                  <tr className="border-b">
+                  <tr>
                     <td className="p-2">Manage Users</td>
                     <td className="text-center p-2">❌</td>
                     <td className="text-center p-2">❌</td>
                     <td className="text-center p-2">✅</td>
                   </tr>
-                  <tr className="border-b">
+                  <tr>
                     <td className="p-2">System Settings</td>
                     <td className="text-center p-2">❌</td>
                     <td className="text-center p-2">❌</td>

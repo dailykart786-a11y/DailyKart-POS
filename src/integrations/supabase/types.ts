@@ -69,6 +69,36 @@ export type Database = {
         }
         Relationships: []
       }
+      invited_users: {
+        Row: {
+          email: string
+          id: string
+          invited_at: string | null
+          invited_by: string
+          role: string
+          temp_password: string
+          used_at: string | null
+        }
+        Insert: {
+          email: string
+          id?: string
+          invited_at?: string | null
+          invited_by: string
+          role: string
+          temp_password: string
+          used_at?: string | null
+        }
+        Update: {
+          email?: string
+          id?: string
+          invited_at?: string | null
+          invited_by?: string
+          role?: string
+          temp_password?: string
+          used_at?: string | null
+        }
+        Relationships: []
+      }
       products: {
         Row: {
           barcode: string | null
@@ -292,6 +322,14 @@ export type Database = {
       get_user_role: {
         Args: { user_uuid: string }
         Returns: string
+      }
+      is_email_invited: {
+        Args: { email_address: string }
+        Returns: boolean
+      }
+      mark_invitation_used: {
+        Args: { email_address: string }
+        Returns: undefined
       }
     }
     Enums: {
