@@ -13,6 +13,7 @@ import {
   BarChart3
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
+import { useUserRole } from "@/hooks/useUserRole";
 
 import {
   Sidebar,
@@ -27,13 +28,13 @@ import {
 } from "@/components/ui/sidebar";
 
 const navigationItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Sales", url: "/sales", icon: ShoppingCart },
-  { title: "Products", url: "/products", icon: Package },
-  { title: "Customers", url: "/customers", icon: Users },
-  { title: "Expenses", url: "/expenses", icon: DollarSign },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Users", url: "/users", icon: UserCheck },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, permission: null },
+  { title: "Sales", url: "/sales", icon: ShoppingCart, permission: "sales" },
+  { title: "Products", url: "/products", icon: Package, permission: "products" },
+  { title: "Customers", url: "/customers", icon: Users, permission: "customers" },
+  { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "expenses" },
+  { title: "Reports", url: "/reports", icon: BarChart3, permission: "reports" },
+  { title: "Users", url: "/users", icon: UserCheck, permission: "users" },
 ];
 
 export function AppSidebar() {
@@ -41,12 +42,17 @@ export function AppSidebar() {
   const location = useLocation();
   const currentPath = location.pathname;
   const isCollapsed = state === "collapsed";
+  const { hasPermission } = useUserRole();
 
   const isActive = (path: string) => {
     if (path === "/" && currentPath === "/") return true;
     if (path !== "/" && currentPath.startsWith(path)) return true;
     return false;
   };
+
+  const filteredItems = navigationItems.filter(item => 
+    !item.permission || hasPermission(item.permission)
+  );
 
   return (
     <Sidebar className={isCollapsed ? "w-14" : "w-64"} collapsible="icon">
@@ -55,7 +61,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigationItems.map((item) => (
+              {filteredItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
                     <Link 

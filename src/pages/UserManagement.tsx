@@ -61,6 +61,7 @@ export default function UserManagement() {
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserName, setNewUserName] = useState("");
   const [newUserRole, setNewUserRole] = useState("cashier");
+  const [newUserPassword, setNewUserPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState("");
 
@@ -134,7 +135,7 @@ export default function UserManagement() {
   };
 
   const handleInviteUser = async () => {
-    if (!newUserEmail || !newUserName) {
+    if (!newUserEmail || !newUserName || !newUserPassword) {
       toast({
         title: "Error",
         description: "Please fill in all fields",
@@ -143,8 +144,7 @@ export default function UserManagement() {
       return;
     }
 
-    const tempPassword = generatePassword();
-    setGeneratedPassword(tempPassword);
+    setGeneratedPassword(newUserPassword);
 
     try {
       // Create invitation record
@@ -154,7 +154,7 @@ export default function UserManagement() {
           email: newUserEmail,
           role: newUserRole,
           invited_by: user?.id,
-          temp_password: tempPassword
+          temp_password: newUserPassword
         });
 
       if (inviteError) throw inviteError;
@@ -168,6 +168,7 @@ export default function UserManagement() {
       setNewUserEmail("");
       setNewUserName("");
       setNewUserRole("cashier");
+      setNewUserPassword("");
       setShowAddUser(false);
       fetchData();
 
@@ -268,6 +269,16 @@ export default function UserManagement() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password *</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                    placeholder="Enter password for the user"
+                  />
+                </div>
                 <Button onClick={handleInviteUser} className="w-full">
                   <Mail className="h-4 w-4 mr-2" />
                   Send Invitation
@@ -357,7 +368,7 @@ export default function UserManagement() {
                 </Button>
               </div>
               <p className="text-sm text-yellow-700 mt-2">
-                Share this password with the invited user. They can change it after first login.
+                Share this password with the invited user. They can use it to sign up with their email.
               </p>
             </CardContent>
           </Card>

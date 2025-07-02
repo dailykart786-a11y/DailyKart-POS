@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { Settings, Bell, Palette, Globe, Save } from "lucide-react";
+import { useTheme } from "@/hooks/useTheme";
 import {
   Dialog,
   DialogContent,
@@ -17,17 +18,28 @@ import {
 export function UserSettings() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [notifications, setNotifications] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
   const [language, setLanguage] = useState("en");
   const [currency, setCurrency] = useState("INR");
+  const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    // Load settings from localStorage on component mount
+    const savedSettings = localStorage.getItem('user-settings');
+    if (savedSettings) {
+      const settings = JSON.parse(savedSettings);
+      setNotifications(settings.notifications ?? true);
+      setLanguage(settings.language ?? "en");
+      setCurrency(settings.currency ?? "INR");
+    }
+  }, []);
 
   const handleSaveSettings = () => {
-    // Save settings to localStorage or backend
+    // Save settings to localStorage
     localStorage.setItem('user-settings', JSON.stringify({
       notifications,
-      darkMode,
       language,
-      currency
+      currency,
+      theme
     }));
 
     toast({
@@ -82,13 +94,18 @@ export function UserSettings() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="darkMode">Dark Mode</Label>
-                <Switch
-                  id="darkMode"
-                  checked={darkMode}
-                  onCheckedChange={setDarkMode}
-                />
+              <div className="space-y-2">
+                <Label>Theme</Label>
+                <Select value={theme} onValueChange={(value: "light" | "dark" | "system") => setTheme(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="light">Light</SelectItem>
+                    <SelectItem value="dark">Dark</SelectItem>
+                    <SelectItem value="system">System</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
