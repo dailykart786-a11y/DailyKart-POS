@@ -8,12 +8,24 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "@/hooks/use-toast";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    toast({
+      title: "Signed out successfully",
+      description: "You have been logged out of DailyKart POS.",
+    });
+  };
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
@@ -32,8 +44,8 @@ export function Layout({ children }: LayoutProps) {
             
             <div className="flex items-center gap-4">
               <div className="text-right">
-                <p className="text-sm font-medium">Admin User</p>
-                <p className="text-xs text-muted-foreground">admin@dailykart.com</p>
+                <p className="text-sm font-medium">{user?.user_metadata?.full_name || 'User'}</p>
+                <p className="text-xs text-muted-foreground">{user?.email}</p>
               </div>
               
               <DropdownMenu>
@@ -51,7 +63,7 @@ export function Layout({ children }: LayoutProps) {
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />
                     Logout
                   </DropdownMenuItem>
