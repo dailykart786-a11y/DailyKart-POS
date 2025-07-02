@@ -12,7 +12,7 @@ import {
   Truck,
   BarChart3
 } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 
 import {
   Sidebar,
@@ -58,8 +58,8 @@ export function AppSidebar() {
               {navigationItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
-                    <a 
-                      href={item.url}
+                    <Link 
+                      to={item.url}
                       className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
                         isActive(item.url)
                           ? "bg-primary text-primary-foreground"
@@ -68,7 +68,7 @@ export function AppSidebar() {
                     >
                       <item.icon className="h-4 w-4" />
                       {!isCollapsed && <span>{item.title}</span>}
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
