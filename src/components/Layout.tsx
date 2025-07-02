@@ -36,9 +36,12 @@ export function Layout({ children }: LayoutProps) {
           <header className="h-16 border-b bg-card flex items-center justify-between px-6">
             <div className="flex items-center gap-4">
               <SidebarTrigger />
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-primary">DailyKart POS</h1>
-                <span className="text-xs bg-accent text-accent-foreground px-2 py-1 rounded">PRO</span>
+              <div className="flex items-center gap-3">
+                <img src="/lovable-uploads/8339ecb2-3c19-468f-b433-6b7bcb690cf2.png" alt="DailyKart Logo" className="h-8 w-8" />
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold text-primary">DailyKart POS</h1>
+                  <span className="text-xs bg-accent text-accent-foreground px-2 py-1 rounded">PRO</span>
+                </div>
               </div>
             </div>
             
@@ -46,6 +49,9 @@ export function Layout({ children }: LayoutProps) {
               <div className="text-right">
                 <p className="text-sm font-medium">{user?.user_metadata?.full_name || 'User'}</p>
                 <p className="text-xs text-muted-foreground">{user?.email}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date().toLocaleDateString('en-IN')} • {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                </p>
               </div>
               
               <DropdownMenu>

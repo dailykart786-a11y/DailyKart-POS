@@ -15,7 +15,7 @@ import {
 const stats = [
   {
     title: "Today's Sales",
-    value: "$2,847.50",
+    value: "₹2,84,750",
     change: "+12.5%",
     icon: DollarSign,
     color: "text-success"
@@ -44,10 +44,10 @@ const stats = [
 ];
 
 const recentTransactions = [
-  { id: "TXN001", customer: "John Doe", amount: "$45.99", time: "2 min ago", status: "completed" },
-  { id: "TXN002", customer: "Sarah Smith", amount: "$127.50", time: "5 min ago", status: "completed" },
-  { id: "TXN003", customer: "Mike Johnson", amount: "$89.00", time: "8 min ago", status: "completed" },
-  { id: "TXN004", customer: "Emily Davis", amount: "$34.75", time: "12 min ago", status: "completed" },
+  { id: "TXN001", customer: "Rajesh Kumar", amount: "₹4,599", time: "2 min ago", status: "completed" },
+  { id: "TXN002", customer: "Priya Sharma", amount: "₹12,750", time: "5 min ago", status: "completed" },
+  { id: "TXN003", customer: "Amit Singh", amount: "₹8,900", time: "8 min ago", status: "completed" },
+  { id: "TXN004", customer: "Kavya Patel", amount: "₹3,475", time: "12 min ago", status: "completed" },
 ];
 
 const lowStockItems = [

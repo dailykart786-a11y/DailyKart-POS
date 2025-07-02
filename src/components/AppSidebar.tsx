@@ -30,12 +30,7 @@ const navigationItems = [
   { title: "Sales", url: "/sales", icon: ShoppingCart },
   { title: "Products", url: "/products", icon: Package },
   { title: "Customers", url: "/customers", icon: Users },
-  { title: "Suppliers", url: "/suppliers", icon: Truck },
-  { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Expenses", url: "/expenses", icon: DollarSign },
-  { title: "Reports", url: "/reports", icon: FileBarChart },
-  { title: "Users", url: "/users", icon: UserCheck },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
