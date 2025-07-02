@@ -9,7 +9,8 @@ import {
   UserCheck,
   Settings,
   FileBarChart,
-  Truck
+  Truck,
+  BarChart3
 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 
@@ -31,6 +32,8 @@ const navigationItems = [
   { title: "Products", url: "/products", icon: Package },
   { title: "Customers", url: "/customers", icon: Users },
   { title: "Expenses", url: "/expenses", icon: DollarSign },
+  { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Users", url: "/users", icon: UserCheck },
 ];
 
 export function AppSidebar() {

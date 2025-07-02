@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, ShoppingCart, Search, Trash2, Calculator } from "lucide-react";
+import { WhatsAppIntegration } from "./WhatsAppIntegration";
 import {
   Table,
   TableBody,
@@ -413,14 +414,37 @@ export function SalesManager() {
                 </Select>
               </div>
 
-              <Button 
-                onClick={processSale} 
-                className="w-full" 
-                size="lg"
-                disabled={cart.length === 0}
-              >
-                Complete Sale - ₹{total.toLocaleString('en-IN')}
-              </Button>
+              <div className="space-y-2">
+                <Button 
+                  onClick={processSale} 
+                  className="w-full" 
+                  size="lg"
+                  disabled={cart.length === 0}
+                >
+                  Complete Sale - ₹{total.toLocaleString('en-IN')}
+                </Button>
+                
+                {cart.length > 0 && (
+                  <WhatsAppIntegration
+                    type="invoice"
+                    data={{
+                      items: cart.map(item => ({
+                        product_name: item.product.name,
+                        quantity: item.quantity,
+                        total_price: calculateItemTotal(item).toLocaleString('en-IN')
+                      })),
+                      subtotal: subtotal.toLocaleString('en-IN'),
+                      tax_amount: totalGST.toLocaleString('en-IN'),
+                      total_amount: total.toLocaleString('en-IN'),
+                      payment_method: paymentMethod,
+                      invoice_number: `INV-${Date.now()}`,
+                      created_at: new Date().toISOString()
+                    }}
+                    recipientPhone=""
+                    recipientName={customers.find(c => c.id === selectedCustomer)?.name || ""}
+                  />
+                )}
+              </div>
             </CardContent>
           </Card>
         )}
