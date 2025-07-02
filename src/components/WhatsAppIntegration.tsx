@@ -40,31 +40,60 @@ export function WhatsAppIntegration({
   const generateInvoiceMessage = () => {
     if (!data) return '';
     
+    const currentTime = new Date().toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
     const invoiceMessage = `
-🧾 *DailyKart POS - Invoice*
+╔══════════════════════════════╗
+║        🏪 *DAILYKART POS*        ║
+║     Your Neighborhood Store     ║
+╚══════════════════════════════╝
 
-📄 Invoice: ${data.invoice_number || 'N/A'}
-👤 Customer: ${recipientName || 'Valued Customer'}
-📅 Date: ${new Date(data.created_at || Date.now()).toLocaleDateString('en-IN')}
+📄 *INVOICE RECEIPT*
+═══════════════════════════════════
 
-💰 *Bill Details:*
-${data.items?.map((item: any) => 
-  `• ${item.product_name} x${item.quantity} = ₹${item.total_price}`
-).join('\n') || ''}
+🧾 Invoice No: ${data.invoice_number || 'N/A'}
+👤 Customer: ${recipientName || 'Walk-in Customer'}
+📅 Date & Time: ${currentTime}
+💳 Payment Mode: ${data.payment_method?.toUpperCase() || 'CASH'}
 
-📊 *Summary:*
-• Subtotal: ₹${data.subtotal || 0}
-• GST: ₹${data.tax_amount || 0}
-• *Total: ₹${data.total_amount || 0}*
+═══════════════════════════════════
+📋 *ITEMIZED BILL*
+═══════════════════════════════════
+${data.items?.map((item: any, index: number) => 
+  `${index + 1}. ${item.product_name}
+   Qty: ${item.quantity} × ₹${(parseFloat(item.total_price.replace(/,/g, '')) / item.quantity).toFixed(2)}
+   Amount: ₹${item.total_price}`
+).join('\n\n') || 'No items'}
 
-💳 Payment: ${data.payment_method || 'Cash'}
+═══════════════════════════════════
+💰 *PAYMENT SUMMARY*
+═══════════════════════════════════
+   Subtotal      : ₹${data.subtotal || '0.00'}
+   GST/Tax       : ₹${data.tax_amount || '0.00'}
+   ────────────────────────────
+   *TOTAL AMOUNT : ₹${data.total_amount || '0.00'}*
 
-Thank you for shopping with DailyKart! 🙏
-Visit us again soon!
+═══════════════════════════════════
 
----
-*DailyKart POS*
-Your trusted neighborhood store
+🙏 *Thank you for shopping with us!*
+
+💬 Need help? Contact us:
+📱 WhatsApp: +91-XXXXXXXXXX
+📧 Email: support@dailykart.com
+
+🎁 *Earn loyalty points with every purchase!*
+💳 *We accept Cash, Card, UPI payments*
+
+═══════════════════════════════════
+⚡ *Powered by DailyKart POS System*
+🕐 Generated on: ${currentTime}
     `.trim();
 
     return invoiceMessage;

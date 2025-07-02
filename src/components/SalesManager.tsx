@@ -123,9 +123,11 @@ export function SalesManager() {
   };
 
   const calculateGST = (item: CartItem) => {
-    const itemTotal = calculateItemTotal(item);
+    const basePrice = item.product.price * item.quantity;
+    const discountAmount = (basePrice * item.discount) / 100;
+    const discountedPrice = basePrice - discountAmount;
     const gstRate = item.product.gst_rate || 0;
-    return (itemTotal * gstRate) / 100;
+    return (discountedPrice * gstRate) / 100;
   };
 
   const getCartTotals = () => {

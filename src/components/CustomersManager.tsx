@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Edit, Users, Mail, Phone, Star } from "lucide-react";
+import { Plus, Edit, Users, Mail, Phone, Star, Trash2 } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -122,6 +122,32 @@ export function CustomersManager() {
     setPhone(customer.phone || "");
     setAddress(customer.address || "");
     setShowForm(true);
+  };
+
+  const handleDelete = async (customerId: string) => {
+    if (!window.confirm("Are you sure you want to delete this customer?")) return;
+    
+    try {
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', customerId);
+
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Customer deleted successfully"
+      });
+      
+      fetchCustomers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete customer",
+        variant: "destructive"
+      });
+    }
   };
 
   const getTierBadge = (points: number | null) => {
@@ -330,14 +356,24 @@ export function CustomersManager() {
                       }
                     </TableCell>
                     <TableCell>
-                      <Button 
-                        variant="outline" 
-                        size="icon" 
-                        className="h-8 w-8"
-                        onClick={() => handleEdit(customer)}
-                      >
-                        <Edit className="h-3 w-3" />
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="icon" 
+                          className="h-8 w-8"
+                          onClick={() => handleEdit(customer)}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          size="icon" 
+                          className="h-8 w-8"
+                          onClick={() => handleDelete(customer.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
