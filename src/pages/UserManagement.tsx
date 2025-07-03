@@ -105,10 +105,11 @@ export default function UserManagement() {
 
       if (roleError) throw roleError;
 
-      // Fetch invited users
+      // Fetch invited users (only pending ones)
       const { data: invitedData, error: invitedError } = await supabase
         .from('invited_users')
         .select('*')
+        .is('used_at', null)
         .order('invited_at', { ascending: false });
 
       if (invitedError) throw invitedError;

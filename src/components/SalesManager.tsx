@@ -129,7 +129,7 @@ export function SalesManager() {
     const discountAmount = (basePrice * item.discount) / 100;
     const discountedPrice = basePrice - discountAmount;
     const gstRate = item.product.gst_rate || 0;
-    return (discountedPrice * gstRate) / 100;
+    return Math.round((discountedPrice * gstRate) / 100 * 100) / 100;
   };
 
   const getCartTotals = () => {
@@ -140,9 +140,13 @@ export function SalesManager() {
     }, 0);
     
     const totalGST = cart.reduce((sum, item) => sum + calculateGST(item), 0);
-    const total = subtotalBeforeGST + totalGST;
+    const total = Math.round((subtotalBeforeGST + totalGST) * 100) / 100;
     
-    return { subtotal: subtotalBeforeGST, totalGST, total };
+    return { 
+      subtotal: Math.round(subtotalBeforeGST * 100) / 100, 
+      totalGST: Math.round(totalGST * 100) / 100, 
+      total 
+    };
   };
 
   const processSale = async () => {
