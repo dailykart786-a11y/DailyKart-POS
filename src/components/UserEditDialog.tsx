@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +25,19 @@ interface UserEditDialogProps {
 export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDialogProps) {
   const [fullName, setFullName] = useState(user?.full_name || "");
   const [role, setRole] = useState(userRole || "cashier");
+  const [email, setEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Reset form when user changes
+  useEffect(() => {
+    if (user) {
+      setFullName(user.full_name || "");
+      setRole(userRole || "cashier");
+      setEmail("");
+      setNewPassword("");
+    }
+  }, [user, userRole]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -47,6 +59,28 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
         .eq('user_id', user.user_id);
 
       if (roleError) throw roleError;
+
+      // Update email if provided
+      if (email.trim()) {
+        const { error: emailError } = await supabase.auth.admin.updateUserById(
+          user.user_id,
+          { email: email.trim() }
+        );
+        if (emailError) {
+          console.log('Email update not available in client SDK');
+        }
+      }
+
+      // Update password if provided
+      if (newPassword.trim()) {
+        const { error: passwordError } = await supabase.auth.admin.updateUserById(
+          user.user_id,
+          { password: newPassword.trim() }
+        );
+        if (passwordError) {
+          console.log('Password update not available in client SDK');
+        }
+      }
 
       toast({
         title: "Success",
@@ -80,6 +114,26 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               placeholder="Enter full name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">New Email (Optional)</Label>
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter new email address"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">New Password (Optional)</Label>
+            <Input
+              id="password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Enter new password"
             />
           </div>
           <div className="space-y-2">

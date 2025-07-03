@@ -119,7 +119,9 @@ export function SalesManager() {
   const calculateItemTotal = (item: CartItem) => {
     const baseTotal = item.product.price * item.quantity;
     const discountAmount = (baseTotal * item.discount) / 100;
-    return baseTotal - discountAmount;
+    const subtotalAfterDiscount = baseTotal - discountAmount;
+    const gstAmount = calculateGST(item);
+    return subtotalAfterDiscount + gstAmount;
   };
 
   const calculateGST = (item: CartItem) => {
@@ -127,15 +129,20 @@ export function SalesManager() {
     const discountAmount = (basePrice * item.discount) / 100;
     const discountedPrice = basePrice - discountAmount;
     const gstRate = item.product.gst_rate || 0;
-    return (discountedPrice * gstRate) / (100 + gstRate);
+    return (discountedPrice * gstRate) / 100;
   };
 
   const getCartTotals = () => {
-    const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0);
-    const totalGST = cart.reduce((sum, item) => sum + calculateGST(item), 0);
-    const total = subtotal;
+    const subtotalBeforeGST = cart.reduce((sum, item) => {
+      const baseTotal = item.product.price * item.quantity;
+      const discountAmount = (baseTotal * item.discount) / 100;
+      return sum + (baseTotal - discountAmount);
+    }, 0);
     
-    return { subtotal: subtotal - totalGST, totalGST, total };
+    const totalGST = cart.reduce((sum, item) => sum + calculateGST(item), 0);
+    const total = subtotalBeforeGST + totalGST;
+    
+    return { subtotal: subtotalBeforeGST, totalGST, total };
   };
 
   const processSale = async () => {

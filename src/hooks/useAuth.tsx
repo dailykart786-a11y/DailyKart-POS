@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string, fullName: string) => {
     const redirectUrl = `${window.location.origin}/`;
     
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -53,9 +53,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Mark invitation as used if signup is successful
-    if (!error) {
+    if (!error && data.user) {
       try {
         await supabase.rpc('mark_invitation_used', { email_address: email });
+        
+        // Also create user role if invitation exists
+        const { data: invitation } = await supabase
+          .from('invited_users')
+          .select('role')
+          .eq('email', email)
+          .single();
+          
+        if (invitation) {
+          await supabase
+            .from('user_roles')
+            .insert({
+              user_id: data.user.id,
+              role: invitation.role
+            });
+        }
       } catch (inviteError) {
         console.log('No invitation found for this email, continuing...');
       }
