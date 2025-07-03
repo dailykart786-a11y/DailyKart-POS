@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Users, Shield, Eye, EyeOff, Copy, Mail } from "lucide-react";
+import { Plus, Users, Shield, Eye, EyeOff, Copy, Mail, Edit, Trash2 } from "lucide-react";
+import { UserEditDialog } from "@/components/UserEditDialog";
 import {
   Table,
   TableBody,
@@ -64,6 +65,8 @@ export default function UserManagement() {
   const [newUserPassword, setNewUserPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState("");
+  const [editingUser, setEditingUser] = useState<Profile | null>(null);
+  const [editingUserRole, setEditingUserRole] = useState("");
 
   useEffect(() => {
     if (user) {
@@ -199,6 +202,46 @@ export default function UserManagement() {
       case 'manager': return 'bg-blue-100 text-blue-800';
       case 'cashier': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleEditUser = (profile: Profile) => {
+    setEditingUser(profile);
+    setEditingUserRole(getUserRole(profile.user_id));
+  };
+
+  const handleDeleteUser = async (profile: Profile) => {
+    if (!window.confirm(`Are you sure you want to delete ${profile.full_name || 'this user'}?`)) return;
+    
+    try {
+      // Delete user role first
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', profile.user_id);
+
+      if (roleError) throw roleError;
+
+      // Delete profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', profile.id);
+
+      if (profileError) throw profileError;
+
+      toast({
+        title: "Success",
+        description: "User deleted successfully"
+      });
+
+      fetchData();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete user",
+        variant: "destructive"
+      });
     }
   };
 
@@ -465,9 +508,24 @@ export default function UserManagement() {
                         }
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">
-                          {getUserRole(profile.user_id) === 'admin' ? 'Admin' : 'User'}
-                        </Badge>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => handleEditUser(profile)}
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button 
+                            variant="destructive" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => handleDeleteUser(profile)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -532,6 +590,14 @@ export default function UserManagement() {
             </div>
           </CardContent>
         </Card>
+
+        {/* User Edit Dialog */}
+        <UserEditDialog
+          user={editingUser}
+          userRole={editingUserRole}
+          onClose={() => setEditingUser(null)}
+          onSave={fetchData}
+        />
       </div>
     </Layout>
   );

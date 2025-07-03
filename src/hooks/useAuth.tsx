@@ -51,6 +51,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
       },
     });
+
+    // Mark invitation as used if signup is successful
+    if (!error) {
+      try {
+        await supabase.rpc('mark_invitation_used', { email_address: email });
+      } catch (inviteError) {
+        console.log('No invitation found for this email, continuing...');
+      }
+    }
+
     return { error };
   };
 

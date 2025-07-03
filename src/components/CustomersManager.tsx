@@ -84,7 +84,7 @@ export function CustomersManager() {
         email: email || null,
         phone: phone || null,
         address: address || null,
-        loyalty_points: 0
+        loyalty_points: null
       };
 
       if (editingCustomer) {
@@ -306,8 +306,6 @@ export function CustomersManager() {
                   <TableHead>Customer</TableHead>
                   <TableHead>Contact</TableHead>
                   <TableHead>Address</TableHead>
-                  <TableHead>Loyalty Points</TableHead>
-                  <TableHead>Tier</TableHead>
                   <TableHead>Joined</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -339,15 +337,6 @@ export function CustomersManager() {
                     </TableCell>
                     <TableCell>
                       <p className="text-sm">{customer.address || "N/A"}</p>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Star className="h-3 w-3 text-warning" />
-                        {customer.loyalty_points || 0}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {getTierBadge(customer.loyalty_points)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {customer.created_at 

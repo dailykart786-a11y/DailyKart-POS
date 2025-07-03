@@ -127,15 +127,15 @@ export function SalesManager() {
     const discountAmount = (basePrice * item.discount) / 100;
     const discountedPrice = basePrice - discountAmount;
     const gstRate = item.product.gst_rate || 0;
-    return (discountedPrice * gstRate) / 100;
+    return (discountedPrice * gstRate) / (100 + gstRate);
   };
 
   const getCartTotals = () => {
     const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0);
     const totalGST = cart.reduce((sum, item) => sum + calculateGST(item), 0);
-    const total = subtotal + totalGST;
+    const total = subtotal;
     
-    return { subtotal, totalGST, total };
+    return { subtotal: subtotal - totalGST, totalGST, total };
   };
 
   const processSale = async () => {
@@ -195,17 +195,7 @@ export function SalesManager() {
           .eq('id', item.product.id);
       }
 
-      // Update customer loyalty points
-      if (selectedCustomer) {
-        const pointsEarned = Math.floor(total / 100); // 1 point per ₹100
-        const customer = customers.find(c => c.id === selectedCustomer);
-        const newPoints = (customer?.loyalty_points || 0) + pointsEarned;
-        
-        await supabase
-          .from('customers')
-          .update({ loyalty_points: newPoints })
-          .eq('id', selectedCustomer);
-      }
+      // Note: Loyalty points feature removed as per business requirements
 
       toast({
         title: "Sale Completed",
@@ -306,7 +296,7 @@ export function SalesManager() {
                 <SelectContent>
                   {customers.map((customer) => (
                     <SelectItem key={customer.id} value={customer.id}>
-                      {customer.name} ({customer.loyalty_points || 0} points)
+                      {customer.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
