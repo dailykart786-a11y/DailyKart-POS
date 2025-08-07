@@ -51,7 +51,7 @@ export function AdminSalesView() {
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [paymentMethodFilter, setPaymentMethodFilter] = useState("");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
 
   useEffect(() => {
     fetchData();
@@ -135,7 +135,7 @@ export function AdminSalesView() {
       );
     }
 
-    if (paymentMethodFilter) {
+    if (paymentMethodFilter !== "all") {
       filtered = filtered.filter(sale => sale.payment_method === paymentMethodFilter);
     }
 
@@ -268,8 +268,8 @@ export function AdminSalesView() {
                 <SelectTrigger>
                   <SelectValue placeholder="All payment methods" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All</SelectItem>
+                <SelectContent className="z-50 bg-popover">
+                  <SelectItem value="all">All</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
                   <SelectItem value="card">Card</SelectItem>
                   <SelectItem value="upi">UPI</SelectItem>
