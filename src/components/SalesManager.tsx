@@ -26,6 +26,7 @@ interface Product {
   stock_quantity: number | null;
   sku: string;
   gst_rate: number | null;
+  category: string | null;
 }
 
 interface Customer {
@@ -48,6 +49,7 @@ export function SalesManager() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -228,12 +230,17 @@ export function SalesManager() {
     }
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.sku.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter((product) => {
+    const matchesSearch =
+      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    const productCategory = (product.category?.trim() || "Uncategorized");
+    const matchesCategory = categoryFilter === "all" || productCategory === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
 
   const { subtotal, totalGST, total } = getCartTotals();
+  const categories = Array.from(new Set(products.map(p => (p.category?.trim() || "Uncategorized"))));
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -249,6 +256,22 @@ export function SalesManager() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
             />
+          </div>
+          <div className="mt-3">
+            <Label>Category</Label>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent className="z-50 bg-popover">
+                <SelectItem value="all">All</SelectItem>
+                {categories.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {cat}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
