@@ -52,13 +52,27 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
 
       if (profileError) throw profileError;
 
-      // Update role
-      const { error: roleError } = await supabase
+      // Update role (insert if missing)
+      const { data: existingRole, error: existingRoleError } = await supabase
         .from('user_roles')
-        .update({ role })
-        .eq('user_id', user.user_id);
+        .select('id')
+        .eq('user_id', user.user_id)
+        .maybeSingle();
 
-      if (roleError) throw roleError;
+      if (existingRoleError) throw existingRoleError;
+
+      if (existingRole) {
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .update({ role })
+          .eq('user_id', user.user_id);
+        if (roleError) throw roleError;
+      } else {
+        const { error: roleInsertError } = await supabase
+          .from('user_roles')
+          .insert({ user_id: user.user_id, role });
+        if (roleInsertError) throw roleInsertError;
+      }
 
       // Update email if provided
       if (email.trim()) {
