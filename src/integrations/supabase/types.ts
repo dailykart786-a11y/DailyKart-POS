@@ -20,6 +20,7 @@ export type Database = {
           created_at: string | null
           email: string | null
           id: string
+          location_id: string
           loyalty_points: number | null
           name: string
           phone: string | null
@@ -29,6 +30,7 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           id?: string
+          location_id?: string
           loyalty_points?: number | null
           name: string
           phone?: string | null
@@ -38,11 +40,20 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           id?: string
+          location_id?: string
           loyalty_points?: number | null
           name?: string
           phone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "customers_location_fk"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       expenses: {
         Row: {
@@ -53,6 +64,7 @@ export type Database = {
           date: string
           description: string | null
           id: string
+          location_id: string
         }
         Insert: {
           amount: number
@@ -62,6 +74,7 @@ export type Database = {
           date?: string
           description?: string | null
           id?: string
+          location_id?: string
         }
         Update: {
           amount?: number
@@ -71,8 +84,17 @@ export type Database = {
           date?: string
           description?: string | null
           id?: string
+          location_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "expenses_location_fk"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invited_users: {
         Row: {
@@ -104,6 +126,27 @@ export type Database = {
         }
         Relationships: []
       }
+      locations: {
+        Row: {
+          address: string | null
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       products: {
         Row: {
           barcode: string | null
@@ -113,6 +156,7 @@ export type Database = {
           gst_rate: number | null
           id: string
           is_active: boolean | null
+          location_id: string
           min_stock_level: number | null
           name: string
           price: number
@@ -128,6 +172,7 @@ export type Database = {
           gst_rate?: number | null
           id?: string
           is_active?: boolean | null
+          location_id?: string
           min_stock_level?: number | null
           name: string
           price: number
@@ -143,6 +188,7 @@ export type Database = {
           gst_rate?: number | null
           id?: string
           is_active?: boolean | null
+          location_id?: string
           min_stock_level?: number | null
           name?: string
           price?: number
@@ -150,7 +196,15 @@ export type Database = {
           stock_quantity?: number | null
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "products_location_fk"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -229,6 +283,7 @@ export type Database = {
           discount_amount: number | null
           id: string
           invoice_number: string
+          location_id: string
           payment_method: string | null
           status: string | null
           tax_amount: number | null
@@ -241,6 +296,7 @@ export type Database = {
           discount_amount?: number | null
           id?: string
           invoice_number: string
+          location_id?: string
           payment_method?: string | null
           status?: string | null
           tax_amount?: number | null
@@ -253,6 +309,7 @@ export type Database = {
           discount_amount?: number | null
           id?: string
           invoice_number?: string
+          location_id?: string
           payment_method?: string | null
           status?: string | null
           tax_amount?: number | null
@@ -266,6 +323,13 @@ export type Database = {
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "sales_location_fk"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
         ]
       }
       suppliers: {
@@ -275,6 +339,7 @@ export type Database = {
           created_at: string | null
           email: string | null
           id: string
+          location_id: string
           name: string
           phone: string | null
         }
@@ -284,6 +349,7 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           id?: string
+          location_id?: string
           name: string
           phone?: string | null
         }
@@ -293,10 +359,48 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           id?: string
+          location_id?: string
           name?: string
           phone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "suppliers_location_fk"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_location_assignments: {
+        Row: {
+          created_at: string
+          id: string
+          location_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_location_assignments_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -324,6 +428,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      default_location: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      get_user_location: {
+        Args: { user_uuid: string }
+        Returns: string
+      }
       get_user_role: {
         Args: { user_uuid: string }
         Returns: string
