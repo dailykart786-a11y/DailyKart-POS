@@ -10,6 +10,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, ShoppingCart, Search, Trash2, Calculator } from "lucide-react";
 import { WhatsAppIntegration } from "./WhatsAppIntegration";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { QRCodeSVG } from "qrcode.react";
 import {
   Table,
   TableBody,
@@ -51,6 +53,9 @@ export function SalesManager() {
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
+  const [upiDialogOpen, setUpiDialogOpen] = useState(false);
+  const [lastSale, setLastSale] = useState<any | null>(null);
+  const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -215,6 +220,10 @@ export function SalesManager() {
         description: `Invoice ${invoiceNumber} generated successfully`
       });
 
+      // Store last sale for printing/sharing
+      setLastSale(sale);
+      setLastSaleItems(cart);
+
       // Reset cart and form
       setCart([]);
       setSelectedCustomer("");
@@ -241,6 +250,12 @@ export function SalesManager() {
 
   const { subtotal, totalGST, total } = getCartTotals();
   const categories = Array.from(new Set(products.map(p => (p.category?.trim() || "Uncategorized"))));
+
+  // UPI payment link
+  const vpa = "6302242108@kotak811";
+  const upiAmount = total.toFixed(2);
+  const upiNote = lastSale?.invoice_number ? `Invoice ${lastSale.invoice_number}` : "POS Payment";
+  const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&am=${encodeURIComponent(upiAmount)}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -441,6 +456,15 @@ export function SalesManager() {
               </div>
 
               <div className="space-y-2">
+                {paymentMethod === 'upi' && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setUpiDialogOpen(true)}
+                  >
+                    Show UPI QR to Pay (₹{total.toLocaleString('en-IN')})
+                  </Button>
+                )}
                 <Button 
                   onClick={processSale} 
                   className="w-full" 
@@ -474,6 +498,91 @@ export function SalesManager() {
             </CardContent>
           </Card>
         )}
+
+        {lastSale && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Sale - {lastSale.invoice_number}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span>Total</span>
+                <span>₹{Number(lastSale.total_amount).toLocaleString('en-IN')}</span>
+              </div>
+              <div className="flex gap-2">
+                <Button className="flex-1" onClick={() => window.print()}>
+                  Print 80mm Invoice
+                </Button>
+                <WhatsAppIntegration
+                  type="invoice"
+                  data={{
+                    items: lastSaleItems.map(item => ({
+                      product_name: item.product.name,
+                      quantity: item.quantity,
+                      total_price: calculateItemTotal(item).toLocaleString('en-IN')
+                    })),
+                    subtotal: subtotal.toLocaleString('en-IN'),
+                    tax_amount: totalGST.toLocaleString('en-IN'),
+                    total_amount: Number(lastSale.total_amount).toLocaleString('en-IN'),
+                    payment_method: lastSale.payment_method,
+                    invoice_number: lastSale.invoice_number,
+                    created_at: lastSale.created_at
+                  }}
+                  recipientPhone=""
+                  recipientName={customers.find(c => c.id === selectedCustomer)?.name || ""}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* UPI QR Dialog */}
+        <Dialog open={upiDialogOpen} onOpenChange={setUpiDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Scan to Pay via UPI</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col items-center gap-3">
+              <QRCodeSVG value={upiUrl} size={200} includeMargin />
+              <div className="text-sm text-muted-foreground">VPA: {vpa}</div>
+              <div className="font-medium">Amount: ₹{total.toLocaleString('en-IN')}</div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Hidden print area for 80mm thermal receipt */}
+        <div id="print-area" className="hidden">
+          {lastSale && (
+            <div className="mx-auto w-[80mm] p-3 text-sm">
+              <div className="text-center">
+                <div className="font-bold">DAILYKART POS</div>
+                <div className="text-xs">Invoice: {lastSale.invoice_number}</div>
+                <div className="text-xs">
+                  {new Date(lastSale.created_at || Date.now()).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                </div>
+              </div>
+              <div className="my-2 border-t border-dashed" />
+              <div className="space-y-1">
+                {lastSaleItems.map(item => (
+                  <div key={item.product.id} className="flex justify-between">
+                    <div>
+                      <div>{item.product.name}</div>
+                      <div className="text-xs text-muted-foreground">{item.quantity} × ₹{item.product.price.toLocaleString('en-IN')}</div>
+                    </div>
+                    <div>₹{calculateItemTotal(item).toLocaleString('en-IN')}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="my-2 border-t border-dashed" />
+              <div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between"><span>GST</span><span>₹{totalGST.toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between font-semibold"><span>Total</span><span>₹{Number(lastSale.total_amount).toLocaleString('en-IN')}</span></div>
+              <div className="text-center mt-3 text-xs">Paid via {lastSale.payment_method?.toUpperCase()}</div>
+              <div className="text-center mt-3">Thank you! Visit again.</div>
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );

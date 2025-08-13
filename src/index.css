@@ -109,3 +109,14 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Print styles for 80mm thermal receipt */
+@page {
+  size: 80mm auto;
+  margin: 0;
+}
+@media print {
+  body * { visibility: hidden; }
+  #print-area, #print-area * { visibility: visible; }
+  #print-area { position: absolute; inset: 0; width: 80mm; margin: 0; padding: 0; }
+}
