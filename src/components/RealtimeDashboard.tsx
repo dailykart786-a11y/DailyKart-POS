@@ -37,6 +37,7 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { useNavigate } from "react-router-dom";
+import { PaymentSettings } from "@/components/PaymentSettings";
 
 interface DashboardStats {
   todaySales: number;
@@ -491,7 +492,7 @@ export function RealtimeDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-warning" />
-              Low Stock Alert
+          Low Stock Alert
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -520,7 +521,20 @@ export function RealtimeDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Payment Settings - Admin Only */}
+        {user && (
+          <PaymentSettingsSection />
+        )}
       </div>
+    </div>
+  );
+}
+
+function PaymentSettingsSection() {
+  return (
+    <div className="mt-6">
+      <PaymentSettings />
     </div>
   );
 }

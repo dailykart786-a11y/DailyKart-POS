@@ -12,6 +12,7 @@ import { Plus, ShoppingCart, Search, Trash2, Calculator } from "lucide-react";
 import { WhatsAppIntegration } from "./WhatsAppIntegration";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QRCodeSVG } from "qrcode.react";
+import { AddCustomerDialog } from "./AddCustomerDialog";
 import {
   Table,
   TableBody,
@@ -56,9 +57,11 @@ export function SalesManager() {
   const [upiDialogOpen, setUpiDialogOpen] = useState(false);
   const [lastSale, setLastSale] = useState<any | null>(null);
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
+  const [paymentSettings, setPaymentSettings] = useState<{ upi_vpa: string; payee_name?: string } | null>(null);
 
   useEffect(() => {
     fetchData();
+    fetchPaymentSettings();
   }, []);
 
   const fetchData = async () => {
@@ -81,6 +84,27 @@ export function SalesManager() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPaymentSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('payment_settings')
+        .select('upi_vpa, payee_name')
+        .limit(1)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching payment settings:', error);
+        return;
+      }
+
+      if (data) {
+        setPaymentSettings(data);
+      }
+    } catch (error) {
+      console.error('Error fetching payment settings:', error);
     }
   };
 
@@ -229,6 +253,7 @@ export function SalesManager() {
       setSelectedCustomer("");
       setPaymentMethod("cash");
       fetchData(); // Refresh product data
+      fetchPaymentSettings(); // Refresh payment settings
 
     } catch (error) {
       toast({
@@ -251,11 +276,12 @@ export function SalesManager() {
   const { subtotal, totalGST, total } = getCartTotals();
   const categories = Array.from(new Set(products.map(p => (p.category?.trim() || "Uncategorized"))));
 
-  // UPI payment link
-  const vpa = "6302242108@kotak811";
+  // UPI payment link - use settings from database or fallback
+  const vpa = paymentSettings?.upi_vpa || "6302242108@kotak811";
+  const payeeName = paymentSettings?.payee_name || "DailyKart";
   const upiAmount = total.toFixed(2);
   const upiNote = lastSale?.invoice_number ? `Invoice ${lastSale.invoice_number}` : "POS Payment";
-  const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&am=${encodeURIComponent(upiAmount)}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
+  const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(upiAmount)}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -338,18 +364,26 @@ export function SalesManager() {
           <CardContent className="p-4">
             <div className="space-y-2">
               <Label>Customer (Optional)</Label>
-              <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select customer" />
-                </SelectTrigger>
-                <SelectContent>
-                  {customers.map((customer) => (
-                    <SelectItem key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Select customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map((customer) => (
+                      <SelectItem key={customer.id} value={customer.id}>
+                        {customer.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <AddCustomerDialog 
+                  onCustomerAdded={(newCustomer) => {
+                    setCustomers(prev => [...prev, { ...newCustomer, loyalty_points: null }]);
+                    setSelectedCustomer(newCustomer.id);
+                  }} 
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -544,8 +578,11 @@ export function SalesManager() {
             </DialogHeader>
             <div className="flex flex-col items-center gap-3">
               <QRCodeSVG value={upiUrl} size={200} includeMargin />
-              <div className="text-sm text-muted-foreground">VPA: {vpa}</div>
-              <div className="font-medium">Amount: ₹{total.toLocaleString('en-IN')}</div>
+              <div className="text-center">
+                <div className="text-sm text-muted-foreground">Pay to: {payeeName}</div>
+                <div className="text-sm text-muted-foreground">VPA: {vpa}</div>
+                <div className="font-medium">Amount: ₹{total.toLocaleString('en-IN')}</div>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
