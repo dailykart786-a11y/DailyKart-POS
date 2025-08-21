@@ -46,7 +46,8 @@ interface InvitedUser {
   role: string;
   invited_at: string;
   used_at: string | null;
-  temp_password: string;
+  invitation_token: string;
+  expires_at: string;
 }
 
 export default function UserManagement() {
@@ -105,14 +106,15 @@ export default function UserManagement() {
 
       if (roleError) throw roleError;
 
-      // Invitations deprecated; no fetch
-      const invitedData: any[] = [];
-      // const { data: invitedData, error: invitedError } = await supabase
-      //   .from('invited_users')
-      //   .select('*')
-      //   .is('used_at', null)
-      //   .order('invited_at', { ascending: false });
-      // if (invitedError) throw invitedError;
+      // Fetch active invitations
+      const { data: invitedData, error: invitedError } = await supabase
+        .from('invited_users')
+        .select('*')
+        .is('used_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .order('invited_at', { ascending: false });
+      
+      if (invitedError) throw invitedError;
 
       setProfiles(profileData || []);
       setUserRoles(roleData || []);
@@ -139,33 +141,36 @@ export default function UserManagement() {
   };
 
   const handleInviteUser = async () => {
-    if (!newUserEmail || !newUserName || !newUserPassword) {
+    if (!newUserEmail || !newUserName) {
       toast({
         title: "Error",
-        description: "Please fill in all fields",
+        description: "Please fill in email and name",
         variant: "destructive"
       });
       return;
     }
 
-    setGeneratedPassword(newUserPassword);
-
     try {
-      // Create invitation record
-      const { error: inviteError } = await supabase
+      // Create invitation record with secure token
+      const { data: inviteData, error: inviteError } = await supabase
         .from('invited_users')
         .insert({
           email: newUserEmail,
           role: newUserRole,
-          invited_by: user?.id,
-          temp_password: newUserPassword
-        });
+          invited_by: user?.id
+        })
+        .select('invitation_token')
+        .single();
 
       if (inviteError) throw inviteError;
 
+      // Generate secure invitation link
+      const inviteLink = `${window.location.origin}/auth?invite=${inviteData.invitation_token}`;
+      setGeneratedPassword(inviteLink);
+
       toast({
         title: "User Invited",
-        description: `${newUserEmail} has been invited. Share the temporary password with them.`
+        description: `${newUserEmail} has been invited. Share the invitation link with them.`
       });
 
       // Reset form
@@ -185,11 +190,11 @@ export default function UserManagement() {
     }
   };
 
-  const copyPassword = () => {
+  const copyInviteLink = () => {
     navigator.clipboard.writeText(generatedPassword);
     toast({
       title: "Copied",
-      description: "Password copied to clipboard"
+      description: "Invitation link copied to clipboard"
     });
   };
 
@@ -314,14 +319,9 @@ export default function UserManagement() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password *</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={newUserPassword}
-                    onChange={(e) => setNewUserPassword(e.target.value)}
-                    placeholder="Enter password for the user"
-                  />
+                  <Label className="text-sm text-muted-foreground">
+                    A secure invitation link will be generated for this user
+                  </Label>
                 </div>
                 <Button onClick={handleInviteUser} className="w-full">
                   <Mail className="h-4 w-4 mr-2" />
@@ -386,11 +386,11 @@ export default function UserManagement() {
           </Card>
         </div>
 
-        {/* Temporary Password Display */}
+        {/* Secure Invitation Link Display */}
         {generatedPassword && (
-          <Card className="bg-yellow-50 border-yellow-200">
+          <Card className="bg-blue-50 border-blue-200">
             <CardHeader>
-              <CardTitle className="text-yellow-800">Temporary Password Generated</CardTitle>
+              <CardTitle className="text-blue-800">Secure Invitation Link Generated</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2">
@@ -407,12 +407,12 @@ export default function UserManagement() {
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
-                <Button variant="outline" size="icon" onClick={copyPassword}>
+                <Button variant="outline" size="icon" onClick={copyInviteLink}>
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-sm text-yellow-700 mt-2">
-                Share this password with the invited user. They can use it to sign up with their email.
+              <p className="text-sm text-blue-700 mt-2">
+                Share this secure invitation link with the user. They can use it to complete their registration.
               </p>
             </CardContent>
           </Card>
