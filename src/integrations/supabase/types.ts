@@ -99,29 +99,32 @@ export type Database = {
       invited_users: {
         Row: {
           email: string
+          expires_at: string | null
           id: string
+          invitation_token: string | null
           invited_at: string | null
           invited_by: string
           role: string
-          temp_password: string
           used_at: string | null
         }
         Insert: {
           email: string
+          expires_at?: string | null
           id?: string
+          invitation_token?: string | null
           invited_at?: string | null
           invited_by: string
           role: string
-          temp_password: string
           used_at?: string | null
         }
         Update: {
           email?: string
+          expires_at?: string | null
           id?: string
+          invitation_token?: string | null
           invited_at?: string | null
           invited_by?: string
           role?: string
-          temp_password?: string
           used_at?: string | null
         }
         Relationships: []
@@ -359,6 +362,39 @@ export type Database = {
           },
         ]
       }
+      security_audit_log: {
+        Row: {
+          created_at: string | null
+          details: Json | null
+          event_type: string
+          id: string
+          ip_address: unknown | null
+          target_user_id: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          details?: Json | null
+          event_type: string
+          id?: string
+          ip_address?: unknown | null
+          target_user_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          details?: Json | null
+          event_type?: string
+          id?: string
+          ip_address?: unknown | null
+          target_user_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       suppliers: {
         Row: {
           address: string | null
@@ -470,6 +506,10 @@ export type Database = {
       is_email_invited: {
         Args: { email_address: string }
         Returns: boolean
+      }
+      log_security_event: {
+        Args: { details?: Json; event_type: string; target_user_id?: string }
+        Returns: undefined
       }
       mark_invitation_used: {
         Args: { email_address: string }
