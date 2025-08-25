@@ -17,50 +17,8 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [inviteData, setInviteData] = useState<any>(null);
-  const [inviteLoading, setInviteLoading] = useState(false);
-  
-  const inviteToken = searchParams.get('invite');
 
-  // Check invitation token on mount
-  useEffect(() => {
-    if (inviteToken) {
-      validateInvitation(inviteToken);
-    }
-  }, [inviteToken]);
 
-  const validateInvitation = async (token: string) => {
-    setInviteLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('invited_users')
-        .select('*')
-        .eq('invitation_token', token)
-        .is('used_at', null)
-        .gt('expires_at', new Date().toISOString())
-        .single();
-
-      if (error || !data) {
-        toast({
-          title: 'Invalid Invitation',
-          description: 'This invitation link is invalid or has expired.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      setInviteData(data);
-      setEmail(data.email);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to validate invitation',
-        variant: 'destructive',
-      });
-    } finally {
-      setInviteLoading(false);
-    }
-  };
 
   // Redirect if already authenticated
   if (user && !loading) {
@@ -103,13 +61,6 @@ export default function Auth() {
           variant: 'destructive',
         });
       } else {
-        // Mark invitation as used if this was an invited signup
-        if (inviteData) {
-          await supabase
-            .from('invited_users')
-            .update({ used_at: new Date().toISOString() })
-            .eq('id', inviteData.id);
-        }
         
         toast({
           title: 'Account created!',
@@ -127,7 +78,7 @@ export default function Auth() {
     }
   };
 
-  if (loading || inviteLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary/30">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -143,63 +94,10 @@ export default function Auth() {
             <ShoppingCart className="h-8 w-8 text-primary" />
             <h1 className="text-2xl font-bold text-primary">DailyKart POS</h1>
           </div>
-          {inviteData ? (
-            <>
-              <UserPlus className="h-12 w-12 text-primary mx-auto mb-2" />
-              <CardTitle>Complete Your Registration</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                You've been invited to join as a {inviteData.role}
-              </p>
-            </>
-          ) : (
-            <CardTitle>Welcome to DailyKart</CardTitle>
-          )}
+          <CardTitle>Welcome to DailyKart</CardTitle>
         </CardHeader>
         <CardContent>
-          {inviteData ? (
-            // Invitation signup form
-            <form onSubmit={handleSignUp} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name</Label>
-                <Input
-                  id="fullName"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  readOnly
-                  className="bg-muted"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="Create a secure password"
-                />
-              </div>
-              <Button 
-                type="submit" 
-                className="w-full" 
-                disabled={isLoading}
-              >
-                {isLoading ? 'Creating account...' : 'Complete Registration'}
-              </Button>
-            </form>
-          ) : (
-            // Regular sign-in/sign-up tabs
+          {/* Regular sign-in/sign-up tabs */}
             <Tabs defaultValue="signin" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="signin">Sign In</TabsTrigger>
@@ -278,7 +176,6 @@ export default function Auth() {
                 </form>
               </TabsContent>
             </Tabs>
-          )}
         </CardContent>
       </Card>
     </div>

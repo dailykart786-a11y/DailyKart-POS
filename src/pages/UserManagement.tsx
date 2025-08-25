@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Users, Shield, Eye, EyeOff, Copy, Mail, Edit, Trash2 } from "lucide-react";
+import { Plus, Users, Shield, Eye, EyeOff, Edit, Trash2 } from "lucide-react";
 import { UserEditDialog } from "@/components/UserEditDialog";
 import {
   Table,
@@ -40,21 +40,12 @@ interface UserRole {
   role: string;
 }
 
-interface InvitedUser {
-  id: string;
-  email: string;
-  role: string;
-  invited_at: string;
-  used_at: string | null;
-  invitation_token: string;
-  expires_at: string;
-}
 
 export default function UserManagement() {
   const { user } = useAuth();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
-  const [invitedUsers, setInvitedUsers] = useState<InvitedUser[]>([]);
+  
   const [currentUserRole, setCurrentUserRole] = useState<string>("cashier");
   const [loading, setLoading] = useState(true);
   const [showAddUser, setShowAddUser] = useState(false);
@@ -106,19 +97,8 @@ export default function UserManagement() {
 
       if (roleError) throw roleError;
 
-      // Fetch active invitations
-      const { data: invitedData, error: invitedError } = await supabase
-        .from('invited_users')
-        .select('*')
-        .is('used_at', null)
-        .gt('expires_at', new Date().toISOString())
-        .order('invited_at', { ascending: false });
-      
-      if (invitedError) throw invitedError;
-
       setProfiles(profileData || []);
       setUserRoles(roleData || []);
-      setInvitedUsers(invitedData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -140,37 +120,44 @@ export default function UserManagement() {
     return password;
   };
 
-  const handleInviteUser = async () => {
-    if (!newUserEmail || !newUserName) {
+  const handleCreateUser = async () => {
+    if (!newUserEmail || !newUserName || !newUserPassword) {
       toast({
         title: "Error",
-        description: "Please fill in email and name",
+        description: "Please fill in all required fields",
         variant: "destructive"
       });
       return;
     }
 
     try {
-      // Create invitation record with secure token
-      const { data: inviteData, error: inviteError } = await supabase
-        .from('invited_users')
-        .insert({
-          email: newUserEmail,
-          role: newUserRole,
-          invited_by: user?.id
-        })
-        .select('invitation_token')
-        .single();
+      // Create user with Supabase Auth
+      const { data, error } = await supabase.auth.admin.createUser({
+        email: newUserEmail,
+        password: newUserPassword,
+        user_metadata: {
+          full_name: newUserName
+        },
+        email_confirm: true
+      });
 
-      if (inviteError) throw inviteError;
+      if (error) throw error;
 
-      // Generate secure invitation link
-      const inviteLink = `${window.location.origin}/auth?invite=${inviteData.invitation_token}`;
-      setGeneratedPassword(inviteLink);
+      // Create user role
+      if (data.user) {
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({
+            user_id: data.user.id,
+            role: newUserRole
+          });
+
+        if (roleError) throw roleError;
+      }
 
       toast({
-        title: "User Invited",
-        description: `${newUserEmail} has been invited. Share the invitation link with them.`
+        title: "User Created",
+        description: `${newUserEmail} has been created successfully.`
       });
 
       // Reset form
@@ -184,19 +171,12 @@ export default function UserManagement() {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to invite user",
+        description: error.message || "Failed to create user",
         variant: "destructive"
       });
     }
   };
 
-  const copyInviteLink = () => {
-    navigator.clipboard.writeText(generatedPassword);
-    toast({
-      title: "Copied",
-      description: "Invitation link copied to clipboard"
-    });
-  };
 
   const getUserRole = (userId: string) => {
     return userRoles.find(role => role.user_id === userId)?.role || "cashier";
@@ -283,7 +263,7 @@ export default function UserManagement() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Invite New User</DialogTitle>
+                <DialogTitle>Create New User</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -306,6 +286,35 @@ export default function UserManagement() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="password">Password *</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      placeholder="Enter secure password"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <Button 
+                    type="button"
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setNewUserPassword(generatePassword())}
+                  >
+                    Generate Password
+                  </Button>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
                   <Select value={newUserRole} onValueChange={setNewUserRole}>
                     <SelectTrigger>
@@ -318,14 +327,9 @@ export default function UserManagement() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">
-                    A secure invitation link will be generated for this user
-                  </Label>
-                </div>
-                <Button onClick={handleInviteUser} className="w-full">
-                  <Mail className="h-4 w-4 mr-2" />
-                  Send Invitation
+                <Button onClick={handleCreateUser} className="w-full">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create User
                 </Button>
               </div>
             </DialogContent>
@@ -386,78 +390,6 @@ export default function UserManagement() {
           </Card>
         </div>
 
-        {/* Secure Invitation Link Display */}
-        {generatedPassword && (
-          <Card className="bg-blue-50 border-blue-200">
-            <CardHeader>
-              <CardTitle className="text-blue-800">Secure Invitation Link Generated</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={generatedPassword}
-                  type={showPassword ? "text" : "password"}
-                  readOnly
-                  className="font-mono"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                <Button variant="outline" size="icon" onClick={copyInviteLink}>
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-              <p className="text-sm text-blue-700 mt-2">
-                Share this secure invitation link with the user. They can use it to complete their registration.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Invited Users Table */}
-        {invitedUsers.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Pending Invitations</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Invited At</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {invitedUsers.map((invite) => (
-                    <TableRow key={invite.id}>
-                      <TableCell>{invite.email}</TableCell>
-                      <TableCell>
-                        <Badge className={getRoleBadgeColor(invite.role)}>
-                          {invite.role.charAt(0).toUpperCase() + invite.role.slice(1)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {new Date(invite.invited_at).toLocaleDateString('en-IN')}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={invite.used_at ? "default" : "secondary"}>
-                          {invite.used_at ? "Accepted" : "Pending"}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
 
         {/* System Users Table */}
         <Card>

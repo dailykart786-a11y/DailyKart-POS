@@ -591,31 +591,89 @@ export function SalesManager() {
         <div id="print-area" className="hidden">
           {lastSale && (
             <div className="mx-auto w-[80mm] p-3 text-sm">
-              <div className="text-center">
-                <div className="font-bold">DAILYKART POS</div>
+              <div className="text-center mb-3">
+                <div className="mb-2">
+                  <svg width="60" height="40" viewBox="0 0 100 60" className="mx-auto">
+                    <rect x="5" y="5" width="90" height="50" rx="8" fill="#2563eb" />
+                    <text x="50" y="25" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">DAILY</text>
+                    <text x="50" y="40" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">KART</text>
+                    <circle cx="20" cy="20" r="3" fill="white" />
+                    <circle cx="80" cy="40" r="3" fill="white" />
+                  </svg>
+                </div>
+                <div className="font-bold text-lg">DAILYKART POS</div>
+                <div className="text-xs">Your Daily Shopping Partner</div>
+                <div className="text-xs mt-1">📞 +91-XXXXX-XXXXX | 📧 info@dailykart.com</div>
+              </div>
+              
+              <div className="my-2 border-t-2 border-dashed border-gray-400" />
+              
+              <div className="text-center mb-2">
+                <div className="font-semibold">TAX INVOICE</div>
                 <div className="text-xs">Invoice: {lastSale.invoice_number}</div>
                 <div className="text-xs">
-                  {new Date(lastSale.created_at || Date.now()).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                  Date: {new Date(lastSale.created_at || Date.now()).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                </div>
+                <div className="text-xs">
+                  Time: {new Date(lastSale.created_at || Date.now()).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </div>
               </div>
+              
               <div className="my-2 border-t border-dashed" />
+              
               <div className="space-y-1">
+                <div className="flex justify-between font-semibold border-b pb-1">
+                  <span>ITEM</span>
+                  <span>QTY × RATE = AMT</span>
+                </div>
                 {lastSaleItems.map(item => (
-                  <div key={item.product.id} className="flex justify-between">
-                    <div>
-                      <div>{item.product.name}</div>
-                      <div className="text-xs text-muted-foreground">{item.quantity} × ₹{item.product.price.toLocaleString('en-IN')}</div>
+                  <div key={item.product.id} className="space-y-1">
+                    <div className="flex justify-between">
+                      <div className="flex-1 pr-2">
+                        <div className="font-medium">{item.product.name}</div>
+                        <div className="text-xs text-gray-600">
+                          {item.quantity} × ₹{item.product.price.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div className="text-right font-medium">
+                        ₹{calculateItemTotal(item).toLocaleString('en-IN')}
+                      </div>
                     </div>
-                    <div>₹{calculateItemTotal(item).toLocaleString('en-IN')}</div>
                   </div>
                 ))}
               </div>
+              
               <div className="my-2 border-t border-dashed" />
-              <div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between"><span>GST</span><span>₹{totalGST.toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between font-semibold"><span>Total</span><span>₹{Number(lastSale.total_amount).toLocaleString('en-IN')}</span></div>
-              <div className="text-center mt-3 text-xs">Paid via {lastSale.payment_method?.toUpperCase()}</div>
-              <div className="text-center mt-3">Thank you! Visit again.</div>
+              
+              <div className="space-y-1">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span>₹{subtotal.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>GST:</span>
+                  <span>₹{totalGST.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg border-t pt-1">
+                  <span>TOTAL:</span>
+                  <span>₹{Number(lastSale.total_amount).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="text-center mt-2 text-sm">
+                  Payment: {lastSale.payment_method?.toUpperCase()}
+                </div>
+              </div>
+              
+              <div className="my-3 border-t-2 border-dashed border-gray-400" />
+              
+              <div className="text-center text-xs space-y-1">
+                <div className="font-semibold">THANK YOU FOR SHOPPING!</div>
+                <div>Visit us again for more great deals</div>
+                <div>🌟 Rate us on Google & Get 5% off next purchase</div>
+                <div className="mt-2">
+                  <div>Return Policy: 7 days with receipt</div>
+                  <div>Customer Care: 1800-XXX-XXXX</div>
+                </div>
+              </div>
             </div>
           )}
         </div>

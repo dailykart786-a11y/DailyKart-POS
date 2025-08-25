@@ -52,26 +52,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     });
 
-    // Mark invitation as used if signup is successful
+    // Create default user role for new signups  
     if (!error && data.user) {
       try {
-        await supabase.rpc('mark_invitation_used', { email_address: email });
+        await supabase
+          .from('user_roles')
+          .insert({
+            user_id: data.user.id,
+            role: 'cashier'
+          });
         
-        // Also create user role if invitation exists
-        const { data: invitation } = await supabase
-          .from('invited_users')
-          .select('role')
-          .eq('email', email)
-          .single();
-          
-        if (invitation) {
-          await supabase
-            .from('user_roles')
-            .insert({
-              user_id: data.user.id,
-              role: invitation.role
-            });
-        }
       } catch (inviteError) {
         console.log('No invitation found for this email, continuing...');
       }

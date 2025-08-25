@@ -96,39 +96,6 @@ export type Database = {
           },
         ]
       }
-      invited_users: {
-        Row: {
-          email: string
-          expires_at: string | null
-          id: string
-          invitation_token: string | null
-          invited_at: string | null
-          invited_by: string
-          role: string
-          used_at: string | null
-        }
-        Insert: {
-          email: string
-          expires_at?: string | null
-          id?: string
-          invitation_token?: string | null
-          invited_at?: string | null
-          invited_by: string
-          role: string
-          used_at?: string | null
-        }
-        Update: {
-          email?: string
-          expires_at?: string | null
-          id?: string
-          invitation_token?: string | null
-          invited_at?: string | null
-          invited_by?: string
-          role?: string
-          used_at?: string | null
-        }
-        Relationships: []
-      }
       locations: {
         Row: {
           address: string | null
@@ -491,6 +458,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_user_with_role: {
+        Args: {
+          p_email: string
+          p_full_name: string
+          p_password: string
+          p_role?: string
+        }
+        Returns: Json
+      }
       default_location: {
         Args: Record<PropertyKey, never>
         Returns: string
