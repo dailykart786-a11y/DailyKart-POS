@@ -1,18 +1,19 @@
 import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
-import { toast } from "@/hooks/use-toast";
-import { Plus, ShoppingCart, Search, Trash2, Calculator } from "lucide-react";
-import { WhatsAppIntegration } from "./WhatsAppIntegration";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CustomerEntryDialog } from "@/components/CustomerEntryDialog";
+import { WhatsAppIntegration } from "@/components/WhatsAppIntegration";
+import { AddCustomerDialog } from "@/components/AddCustomerDialog";
+import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { AddCustomerDialog } from "./AddCustomerDialog";
 import {
   Table,
   TableBody,
@@ -35,13 +36,34 @@ interface Product {
 interface Customer {
   id: string;
   name: string;
-  loyalty_points: number | null;
+  phone?: string;
+  email?: string;
+  address?: string;
+  loyalty_points: number;
 }
 
 interface CartItem {
   product: Product;
   quantity: number;
   discount: number;
+}
+
+interface Sale {
+  id: string;
+  invoice_number: string;
+  total_amount: number;
+  payment_method?: string;
+  created_at: string;
+  customer_id?: string;
+}
+
+interface SaleItem {
+  id: string;
+  product: Product;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  gst_amount: number;
 }
 
 export function SalesManager() {
@@ -51,9 +73,11 @@ export function SalesManager() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [showCustomerDialog, setShowCustomerDialog] = useState(false);
+  const [customerEntryLoading, setCustomerEntryLoading] = useState(false);
   const [upiDialogOpen, setUpiDialogOpen] = useState(false);
   const [lastSale, setLastSale] = useState<any | null>(null);
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
@@ -180,7 +204,7 @@ export function SalesManager() {
     };
   };
 
-  const processSale = async () => {
+  const handleCompleteSale = () => {
     if (cart.length === 0) {
       toast({
         title: "Error",
@@ -189,18 +213,56 @@ export function SalesManager() {
       });
       return;
     }
+    setShowCustomerDialog(true);
+  };
 
+  const handleCustomerSubmit = async (customerData: { name: string; phone: string; email: string; address: string }) => {
+    setCustomerEntryLoading(true);
+    
+    try {
+      let customerId = null;
+      
+      // Create customer if name is provided
+      if (customerData.name.trim()) {
+        const { data: customer, error: customerError } = await supabase
+          .from('customers')
+          .insert({
+            name: customerData.name.trim(),
+            phone: customerData.phone.trim() || null,
+            email: customerData.email.trim() || null,
+            address: customerData.address.trim() || null
+          })
+          .select()
+          .single();
+
+        if (customerError) throw customerError;
+        customerId = customer.id;
+      }
+
+      await processSale(customerId);
+      setShowCustomerDialog(false);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create customer",
+        variant: "destructive"
+      });
+    } finally {
+      setCustomerEntryLoading(false);
+    }
+  };
+
+  const processSale = async (customerId?: string | null) => {
     if (!user) return;
 
     try {
       const { subtotal, totalGST, total } = getCartTotals();
       const invoiceNumber = `INV-${Date.now()}`;
 
-      // Create sale record
       const { data: sale, error: saleError } = await supabase
         .from('sales')
         .insert({
-          customer_id: selectedCustomer || null,
+          customer_id: customerId || selectedCustomer || null,
           cashier_id: user.id,
           total_amount: total,
           tax_amount: totalGST,
@@ -379,7 +441,7 @@ export function SalesManager() {
                 </Select>
                 <AddCustomerDialog 
                   onCustomerAdded={(newCustomer) => {
-                    setCustomers(prev => [...prev, { ...newCustomer, loyalty_points: null }]);
+                    setCustomers(prev => [...prev, { ...newCustomer, loyalty_points: 0 }]);
                     setSelectedCustomer(newCustomer.id);
                   }} 
                 />
@@ -500,7 +562,7 @@ export function SalesManager() {
                   </Button>
                 )}
                 <Button 
-                  onClick={processSale} 
+                  onClick={handleCompleteSale} 
                   className="w-full" 
                   size="lg"
                   disabled={cart.length === 0}
@@ -569,6 +631,14 @@ export function SalesManager() {
             </CardContent>
           </Card>
         )}
+
+        {/* Customer Entry Dialog */}
+        <CustomerEntryDialog
+          open={showCustomerDialog}
+          onOpenChange={setShowCustomerDialog}
+          onSubmit={handleCustomerSubmit}
+          isLoading={customerEntryLoading}
+        />
 
         {/* UPI QR Dialog */}
         <Dialog open={upiDialogOpen} onOpenChange={setUpiDialogOpen}>
