@@ -483,6 +483,10 @@ export type Database = {
         Args: { email_address: string }
         Returns: boolean
       }
+      log_customer_access: {
+        Args: { action_type: string; customer_id: string }
+        Returns: undefined
+      }
       log_security_event: {
         Args: { details?: Json; event_type: string; target_user_id?: string }
         Returns: undefined
