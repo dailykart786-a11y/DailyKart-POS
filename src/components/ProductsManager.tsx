@@ -31,6 +31,7 @@ interface Product {
   is_active: boolean | null;
   min_stock_level: number | null;
   gst_rate: number | null;
+  image_url: string | null;
 }
 
 const categories = [
@@ -55,6 +56,7 @@ export function ProductsManager() {
   const [category, setCategory] = useState("");
   const [minStockLevel, setMinStockLevel] = useState("");
   const [gstRate, setGstRate] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
 
   useEffect(() => {
     fetchProducts();
@@ -90,6 +92,7 @@ export function ProductsManager() {
     setCategory("");
     setMinStockLevel("");
     setGstRate("");
+    setImageUrl("");
     setEditingProduct(null);
     setShowForm(false);
   };
@@ -109,6 +112,7 @@ export function ProductsManager() {
         category: category || null,
         min_stock_level: minStockLevel ? parseInt(minStockLevel) : 10,
         gst_rate: gstRate ? parseFloat(gstRate) : 0,
+        image_url: imageUrl || null,
         is_active: true
       };
 
@@ -151,6 +155,7 @@ export function ProductsManager() {
     setCategory(product.category || "");
     setMinStockLevel(product.min_stock_level?.toString() || "");
     setGstRate(product.gst_rate?.toString() || "");
+    setImageUrl(product.image_url || "");
     setShowForm(true);
   };
 
@@ -301,6 +306,27 @@ export function ProductsManager() {
                   placeholder="Enter barcode"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="imageUrl">Product Image URL</Label>
+                <Input
+                  id="imageUrl"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="Enter image URL (optional)"
+                />
+                {imageUrl && (
+                  <div className="mt-2">
+                    <img 
+                      src={imageUrl} 
+                      alt="Product preview" 
+                      className="h-20 w-20 object-cover rounded border"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
               <div className="flex gap-2">
                 <Button type="submit">
                   {editingProduct ? "Update Product" : "Add Product"}
@@ -347,9 +373,21 @@ export function ProductsManager() {
                 {products.map((product) => (
                   <TableRow key={product.id}>
                     <TableCell>
-                      <div>
-                        <p className="font-medium">{product.name}</p>
-                        <p className="text-sm text-muted-foreground">{product.sku}</p>
+                      <div className="flex items-center gap-3">
+                        {product.image_url && (
+                          <img 
+                            src={product.image_url} 
+                            alt={product.name}
+                            className="h-10 w-10 object-cover rounded border"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        )}
+                        <div>
+                          <p className="font-medium">{product.name}</p>
+                          <p className="text-sm text-muted-foreground">{product.sku}</p>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>

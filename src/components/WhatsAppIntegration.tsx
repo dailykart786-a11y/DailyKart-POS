@@ -6,25 +6,29 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { MessageCircle, Send, FileText, Share } from "lucide-react";
+import { MessageCircle, Send, FileText, Share, Download, FileUp } from "lucide-react";
+import { generateInvoicePDF, downloadPDF } from "@/utils/pdfGenerator";
 
 interface WhatsAppIntegrationProps {
   type: 'invoice' | 'order' | 'custom';
   data?: any;
   recipientPhone?: string;
   recipientName?: string;
+  enablePDF?: boolean;
 }
 
 export function WhatsAppIntegration({ 
   type, 
   data, 
   recipientPhone = '', 
-  recipientName = '' 
+  recipientName = '',
+  enablePDF = true
 }: WhatsAppIntegrationProps) {
   const [phone, setPhone] = useState(recipientPhone);
   const [message, setMessage] = useState('');
   const [template, setTemplate] = useState('custom');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [shareMethod, setShareMethod] = useState<'text' | 'pdf'>('text');
 
   const generateMessage = () => {
     switch (type) {
@@ -180,6 +184,67 @@ Thank you for choosing DailyKart! 🛒
     setDialogOpen(false);
   };
 
+  const handlePDFShare = () => {
+    if (!data || type !== 'invoice') {
+      toast({
+        title: "Error",
+        description: "Invalid invoice data for PDF generation",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const invoiceData = {
+      invoice_number: data.invoice_number || `INV-${Date.now()}`,
+      created_at: data.created_at || new Date().toISOString(),
+      payment_method: data.payment_method || 'cash',
+      customer_name: recipientName || undefined,
+      items: data.items?.map((item: any) => ({
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: parseFloat(item.total_price.replace(/,/g, '')) / item.quantity,
+        total_price: parseFloat(item.total_price.replace(/,/g, ''))
+      })) || [],
+      subtotal: parseFloat(data.subtotal?.replace(/,/g, '') || '0'),
+      tax_amount: parseFloat(data.tax_amount?.replace(/,/g, '') || '0'),
+      total_amount: parseFloat(data.total_amount?.replace(/,/g, '') || '0')
+    };
+
+    const pdfDataUri = generateInvoicePDF(invoiceData);
+    const filename = `Invoice-${invoiceData.invoice_number}.pdf`;
+    
+    if (shareMethod === 'pdf') {
+      // Download PDF for manual sharing
+      downloadPDF(pdfDataUri, filename);
+      
+      // Also create a WhatsApp message with instruction to attach the PDF
+      const instructionMessage = `Hi ${recipientName || 'Customer'}! 
+
+📄 Your invoice from DailyKart is ready!
+
+Invoice: ${invoiceData.invoice_number}
+Total Amount: ₹${invoiceData.total_amount.toLocaleString('en-IN')}
+Payment: ${invoiceData.payment_method.toUpperCase()}
+
+🔗 I've generated your invoice PDF. Please find it attached.
+
+Thank you for shopping with DailyKart! 🛒`;
+
+      const cleanPhone = phone.replace(/\D/g, '');
+      const formattedPhone = cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}`;
+      const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(instructionMessage)}`;
+      
+      window.open(whatsappUrl, '_blank');
+      
+      toast({
+        title: "PDF Downloaded",
+        description: "Invoice PDF downloaded. WhatsApp opened - manually attach the PDF file."
+      });
+    }
+    
+    setDialogOpen(false);
+  };
+
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
@@ -210,6 +275,21 @@ Thank you for choosing DailyKart! 🛒
               Enter phone number with country code (e.g., +91 for India)
             </p>
           </div>
+
+          {enablePDF && type === 'invoice' && (
+            <div>
+              <Label htmlFor="shareMethod">Share Method</Label>
+              <Select value={shareMethod} onValueChange={(value: 'text' | 'pdf') => setShareMethod(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="text">Text Message</SelectItem>
+                  <SelectItem value="pdf">PDF Document</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="template">Message Template</Label>
@@ -250,10 +330,17 @@ Thank you for choosing DailyKart! 🛒
           )}
 
           <div className="flex gap-2">
-            <Button onClick={sendWhatsAppMessage} className="flex-1 gap-2">
-              <Send className="h-4 w-4" />
-              Send Message
-            </Button>
+            {shareMethod === 'pdf' ? (
+              <Button onClick={handlePDFShare} className="flex-1 gap-2">
+                <FileUp className="h-4 w-4" />
+                Generate PDF & Share
+              </Button>
+            ) : (
+              <Button onClick={sendWhatsAppMessage} className="flex-1 gap-2">
+                <Send className="h-4 w-4" />
+                Send Message
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>

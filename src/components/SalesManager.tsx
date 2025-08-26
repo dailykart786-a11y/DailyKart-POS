@@ -31,6 +31,7 @@ interface Product {
   sku: string;
   gst_rate: number | null;
   category: string | null;
+  image_url: string | null;
 }
 
 interface Customer {
@@ -394,22 +395,34 @@ export function SalesManager() {
                     className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent cursor-pointer"
                     onClick={() => addToCart(product)}
                   >
-                    <div className="flex-1">
-                      <p className="font-medium">{product.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {product.sku} • Stock: {product.stock_quantity || 0}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">₹{product.price.toLocaleString('en-IN')}</p>
-                      <Button size="sm" variant="outline">
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                    <div className="flex items-center gap-3 flex-1">
+                      {product.image_url && (
+                        <img 
+                          src={product.image_url} 
+                          alt={product.name}
+                          className="h-12 w-12 object-cover rounded border"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                       )}
+                       <div className="flex-1">
+                         <p className="font-medium">{product.name}</p>
+                         <p className="text-sm text-muted-foreground">
+                           {product.sku} • Stock: {product.stock_quantity || 0}
+                         </p>
+                       </div>
+                     </div>
+                     <div className="text-right">
+                       <p className="font-medium">₹{product.price.toLocaleString('en-IN')}</p>
+                       <Button size="sm" variant="outline">
+                         <Plus className="h-3 w-3" />
+                       </Button>
+                     </div>
+                   </div>
+                 ))
+               )}
+             </div>
           </CardContent>
         </Card>
       </div>
@@ -606,7 +619,41 @@ export function SalesManager() {
                 <span>₹{Number(lastSale.total_amount).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex gap-2">
-                <Button className="flex-1" onClick={() => window.print()}>
+                <Button className="flex-1" onClick={() => {
+                  const printArea = document.getElementById('print-area');
+                  if (printArea) {
+                    const printWindow = window.open('', '_blank');
+                    if (printWindow) {
+                      printWindow.document.write(`
+                        <html>
+                          <head>
+                            <title>Invoice - ${lastSale.invoice_number}</title>
+                            <style>
+                              @media print {
+                                body { margin: 0; padding: 0; font-family: monospace; }
+                                .print-content { width: 80mm; font-size: 12px; }
+                                .center { text-align: center; }
+                                .bold { font-weight: bold; }
+                                .dashed { border-top: 1px dashed #000; margin: 8px 0; }
+                                .flex { display: flex; justify-content: space-between; }
+                                .mb-1 { margin-bottom: 4px; }
+                                .mb-2 { margin-bottom: 8px; }
+                                .small { font-size: 10px; }
+                              }
+                            </style>
+                          </head>
+                          <body>
+                            ${printArea.innerHTML}
+                          </body>
+                        </html>
+                      `);
+                      printWindow.document.close();
+                      printWindow.focus();
+                      printWindow.print();
+                      printWindow.close();
+                    }
+                  }
+                }}>
                   Print 80mm Invoice
                 </Button>
                 <WhatsAppIntegration
@@ -658,10 +705,10 @@ export function SalesManager() {
         </Dialog>
 
         {/* Hidden print area for 80mm thermal receipt */}
-        <div id="print-area" className="hidden">
+        <div id="print-area" className="print-content center" style={{display: 'none'}}>
           {lastSale && (
-            <div className="mx-auto w-[80mm] p-3 text-sm">
-              <div className="text-center mb-3">
+            <div className="print-content">
+              <div className="center mb-2">
                 <div className="mb-2">
                   <svg width="60" height="40" viewBox="0 0 100 60" className="mx-auto">
                     <rect x="5" y="5" width="90" height="50" rx="8" fill="#2563eb" />
@@ -671,25 +718,25 @@ export function SalesManager() {
                     <circle cx="80" cy="40" r="3" fill="white" />
                   </svg>
                 </div>
-                <div className="font-bold text-lg">DAILYKART POS</div>
-                <div className="text-xs">Your Daily Shopping Partner</div>
-                <div className="text-xs mt-1">📞 +91-XXXXX-XXXXX | 📧 info@dailykart.com</div>
+                <div className="bold">DAILYKART POS</div>
+                <div className="small">Your Daily Shopping Partner</div>
+                <div className="small">📞 +91-XXXXX-XXXXX | 📧 info@dailykart.com</div>
               </div>
               
-              <div className="my-2 border-t-2 border-dashed border-gray-400" />
+              <div className="dashed"></div>
               
-              <div className="text-center mb-2">
-                <div className="font-semibold">TAX INVOICE</div>
-                <div className="text-xs">Invoice: {lastSale.invoice_number}</div>
-                <div className="text-xs">
+              <div className="center mb-2">
+                <div className="bold">TAX INVOICE</div>
+                <div className="small">Invoice: {lastSale.invoice_number}</div>
+                <div className="small">
                   Date: {new Date(lastSale.created_at || Date.now()).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </div>
-                <div className="text-xs">
+                <div className="small">
                   Time: {new Date(lastSale.created_at || Date.now()).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                 </div>
               </div>
               
-              <div className="my-2 border-t border-dashed" />
+              <div className="dashed"></div>
               
               <div className="space-y-1">
                 <div className="flex justify-between font-semibold border-b pb-1">

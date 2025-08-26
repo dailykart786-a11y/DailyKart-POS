@@ -152,6 +152,7 @@ export type Database = {
           created_at: string | null
           gst_rate: number | null
           id: string
+          image_url: string | null
           is_active: boolean | null
           location_id: string
           min_stock_level: number | null
@@ -168,6 +169,7 @@ export type Database = {
           created_at?: string | null
           gst_rate?: number | null
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
           location_id?: string
           min_stock_level?: number | null
@@ -184,6 +186,7 @@ export type Database = {
           created_at?: string | null
           gst_rate?: number | null
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
           location_id?: string
           min_stock_level?: number | null
