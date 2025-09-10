@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
 import { toast } from "@/hooks/use-toast";
-import { Save, CreditCard } from "lucide-react";
+import { Save, CreditCard, Lock } from "lucide-react";
 
 interface PaymentSetting {
   id: string;
@@ -18,11 +19,27 @@ interface PaymentSetting {
 
 export function PaymentSettings() {
   const { user } = useAuth();
+  const { role } = useUserRole();
   const [settings, setSettings] = useState<PaymentSetting | null>(null);
   const [upiVpa, setUpiVpa] = useState("");
   const [payeeName, setPayeeName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Only allow admin access
+  if (role !== 'admin') {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <Lock className="h-12 w-12 text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
+          <p className="text-muted-foreground text-center">
+            Only administrators can access payment settings.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   useEffect(() => {
     fetchPaymentSettings();

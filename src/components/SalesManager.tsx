@@ -662,11 +662,12 @@ export function SalesManager() {
                     items: lastSaleItems.map(item => ({
                       product_name: item.product.name,
                       quantity: item.quantity,
-                      total_price: calculateItemTotal(item).toLocaleString('en-IN')
+                      unit_price: calculateItemTotal(item) / item.quantity,
+                      total_price: calculateItemTotal(item)
                     })),
-                    subtotal: subtotal.toLocaleString('en-IN'),
-                    tax_amount: totalGST.toLocaleString('en-IN'),
-                    total_amount: Number(lastSale.total_amount).toLocaleString('en-IN'),
+                    subtotal: subtotal,
+                    tax_amount: totalGST,
+                    total_amount: Number(lastSale.total_amount),
                     payment_method: lastSale.payment_method,
                     invoice_number: lastSale.invoice_number,
                     created_at: lastSale.created_at
@@ -720,7 +721,7 @@ export function SalesManager() {
                 </div>
                 <div className="bold">DAILYKART POS</div>
                 <div className="small">Your Daily Shopping Partner</div>
-                <div className="small">📞 +91-XXXXX-XXXXX | 📧 info@dailykart.com</div>
+                <div className="small">📞 +91-9966160298, +91-9381309140 | 📧 dailykart786@gmail.com</div>
               </div>
               
               <div className="dashed"></div>

@@ -89,8 +89,8 @@ ${data.items?.map((item: any, index: number) =>
 🙏 *Thank you for shopping with us!*
 
 💬 Need help? Contact us:
-📱 WhatsApp: +91-XXXXXXXXXX
-📧 Email: support@dailykart.com
+📱 WhatsApp: +91-9966160298, +91-9381309140
+📧 Email: dailykart786@gmail.com
 
 🎁 *Earn loyalty points with every purchase!*
 💳 *We accept Cash, Card, UPI payments*
@@ -199,15 +199,20 @@ Thank you for choosing DailyKart! 🛒
       created_at: data.created_at || new Date().toISOString(),
       payment_method: data.payment_method || 'cash',
       customer_name: recipientName || undefined,
-      items: data.items?.map((item: any) => ({
-        product_name: item.product_name,
-        quantity: item.quantity,
-        unit_price: parseFloat(item.total_price.replace(/,/g, '')) / item.quantity,
-        total_price: parseFloat(item.total_price.replace(/,/g, ''))
-      })) || [],
-      subtotal: parseFloat(data.subtotal?.replace(/,/g, '') || '0'),
-      tax_amount: parseFloat(data.tax_amount?.replace(/,/g, '') || '0'),
-      total_amount: parseFloat(data.total_amount?.replace(/,/g, '') || '0')
+      items: data.items?.map((item: any) => {
+        const unitPrice = typeof item.unit_price === 'number' ? item.unit_price : parseFloat(item.unit_price) || 0;
+        const totalPrice = typeof item.total_price === 'number' ? item.total_price : parseFloat(item.total_price) || 0;
+        
+        return {
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit_price: unitPrice,
+          total_price: totalPrice
+        };
+      }) || [],
+      subtotal: typeof data.subtotal === 'number' ? data.subtotal : parseFloat(data.subtotal?.replace(/,/g, '') || '0'),
+      tax_amount: typeof data.tax_amount === 'number' ? data.tax_amount : parseFloat(data.tax_amount?.replace(/,/g, '') || '0'),
+      total_amount: typeof data.total_amount === 'number' ? data.total_amount : parseFloat(data.total_amount?.replace(/,/g, '') || '0')
     };
 
     const pdfDataUri = generateInvoicePDF(invoiceData);

@@ -205,11 +205,11 @@ export function RealtimeDashboard() {
       const salesDataResults = await Promise.all(salesDataPromises);
       setSalesData(salesDataResults);
 
-      // Fetch low stock products
+      // Fetch low stock products - fix the comparison
       const { data: lowStock } = await supabase
         .from('products')
         .select('*')
-        .lt('stock_quantity', 'min_stock_level')
+        .filter('stock_quantity', 'lte', 'min_stock_level')
         .limit(5);
 
       setLowStockProducts(lowStock || []);
