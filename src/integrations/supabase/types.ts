@@ -263,13 +263,6 @@ export type Database = {
             foreignKeyName: "sale_items_product_id_fkey"
             columns: ["product_id"]
             isOneToOne: false
-            referencedRelation: "low_stock_products"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "sale_items_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
             referencedRelation: "products"
             referencedColumns: ["id"]
           },
@@ -465,68 +458,7 @@ export type Database = {
       }
     }
     Views: {
-      low_stock_products: {
-        Row: {
-          barcode: string | null
-          category: string | null
-          cost_price: number | null
-          created_at: string | null
-          gst_rate: number | null
-          id: string | null
-          image_url: string | null
-          is_active: boolean | null
-          location_id: string | null
-          min_stock_level: number | null
-          name: string | null
-          price: number | null
-          sku: string | null
-          stock_quantity: number | null
-          updated_at: string | null
-        }
-        Insert: {
-          barcode?: string | null
-          category?: string | null
-          cost_price?: number | null
-          created_at?: string | null
-          gst_rate?: number | null
-          id?: string | null
-          image_url?: string | null
-          is_active?: boolean | null
-          location_id?: string | null
-          min_stock_level?: number | null
-          name?: string | null
-          price?: number | null
-          sku?: string | null
-          stock_quantity?: number | null
-          updated_at?: string | null
-        }
-        Update: {
-          barcode?: string | null
-          category?: string | null
-          cost_price?: number | null
-          created_at?: string | null
-          gst_rate?: number | null
-          id?: string | null
-          image_url?: string | null
-          is_active?: boolean | null
-          location_id?: string | null
-          min_stock_level?: number | null
-          name?: string | null
-          price?: number | null
-          sku?: string | null
-          stock_quantity?: number | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "products_location_fk"
-            columns: ["location_id"]
-            isOneToOne: false
-            referencedRelation: "locations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
+      [_ in never]: never
     }
     Functions: {
       create_user_with_role: {
@@ -541,6 +473,26 @@ export type Database = {
       default_location: {
         Args: Record<PropertyKey, never>
         Returns: string
+      }
+      get_low_stock_products: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          barcode: string
+          category: string
+          cost_price: number
+          created_at: string
+          gst_rate: number
+          id: string
+          image_url: string
+          is_active: boolean
+          location_id: string
+          min_stock_level: number
+          name: string
+          price: number
+          sku: string
+          stock_quantity: number
+          updated_at: string
+        }[]
       }
       get_user_location: {
         Args: { user_uuid: string }
