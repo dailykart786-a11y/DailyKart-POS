@@ -26,25 +26,6 @@ export function PaymentSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Only allow admin access
-  if (role !== 'admin') {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12">
-          <Lock className="h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
-          <p className="text-muted-foreground text-center">
-            Only administrators can access payment settings.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  useEffect(() => {
-    fetchPaymentSettings();
-  }, []);
-
   const fetchPaymentSettings = async () => {
     try {
       const { data, error } = await supabase
@@ -73,6 +54,14 @@ export function PaymentSettings() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (role === 'admin') {
+      fetchPaymentSettings();
+    } else {
+      setLoading(false);
+    }
+  }, [role]);
 
   const saveSettings = async () => {
     if (!user) return;
@@ -131,6 +120,21 @@ export function PaymentSettings() {
       setSaving(false);
     }
   };
+
+  // Only allow admin access
+  if (role !== 'admin') {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <Lock className="h-12 w-12 text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
+          <p className="text-muted-foreground text-center">
+            Only administrators can access payment settings.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (loading) {
     return <div className="text-center py-4">Loading payment settings...</div>;
