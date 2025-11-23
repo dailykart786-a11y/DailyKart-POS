@@ -338,7 +338,7 @@ export type Database = {
           details: Json | null
           event_type: string
           id: string
-          ip_address: unknown | null
+          ip_address: unknown
           target_user_id: string | null
           user_agent: string | null
           user_id: string | null
@@ -348,7 +348,7 @@ export type Database = {
           details?: Json | null
           event_type: string
           id?: string
-          ip_address?: unknown | null
+          ip_address?: unknown
           target_user_id?: string | null
           user_agent?: string | null
           user_id?: string | null
@@ -358,7 +358,7 @@ export type Database = {
           details?: Json | null
           event_type?: string
           id?: string
-          ip_address?: unknown | null
+          ip_address?: unknown
           target_user_id?: string | null
           user_agent?: string | null
           user_id?: string | null
@@ -470,12 +470,9 @@ export type Database = {
         }
         Returns: Json
       }
-      default_location: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
+      default_location: { Args: never; Returns: string }
       get_low_stock_products: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: {
           barcode: string
           category: string
@@ -494,18 +491,9 @@ export type Database = {
           updated_at: string
         }[]
       }
-      get_user_location: {
-        Args: { user_uuid: string }
-        Returns: string
-      }
-      get_user_role: {
-        Args: { user_uuid: string }
-        Returns: string
-      }
-      is_email_invited: {
-        Args: { email_address: string }
-        Returns: boolean
-      }
+      get_user_location: { Args: { user_uuid: string }; Returns: string }
+      get_user_role: { Args: { user_uuid: string }; Returns: string }
+      is_email_invited: { Args: { email_address: string }; Returns: boolean }
       log_customer_access: {
         Args: { action_type: string; customer_id: string }
         Returns: undefined

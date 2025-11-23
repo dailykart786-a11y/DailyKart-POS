@@ -67,10 +67,10 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): string => {
   };
 
   // Store Header with Logo
-  addCenteredText('🏪 DAILYKART POS 🏪', 14, true);
+  addCenteredText('DAILYKART POS', 14, true);
   addCenteredText('Your Daily Shopping Partner', 8);
-  addCenteredText('📞 +91-9966160298, +91-9381309140', 7);
-  addCenteredText('📧 dailykart786@gmail.com', 7);
+  addCenteredText('Ph: +91-9966160298, +91-9381309140', 7);
+  addCenteredText('Email: dailykart786@gmail.com', 7);
   
   addDashedLine();
   
@@ -100,8 +100,8 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): string => {
     // Quantity and amount - ensure proper formatting
     const unitPrice = Number(item.unit_price);
     const totalPrice = Number(item.total_price);
-    const qtyText = `${item.quantity} × ₹${unitPrice.toLocaleString('en-IN')}`;
-    const amtText = `₹${totalPrice.toLocaleString('en-IN')}`;
+    const qtyText = `${item.quantity} x Rs.${unitPrice.toFixed(2)}`;
+    const amtText = `Rs.${totalPrice.toFixed(2)}`;
     addJustifiedText(qtyText, amtText, 8);
     yPosition += 1; // Extra spacing between items
   });
@@ -109,22 +109,22 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): string => {
   addDashedLine();
   
   // Totals
-  addJustifiedText('Subtotal:', `₹${invoiceData.subtotal.toLocaleString('en-IN')}`, 8);
-  addJustifiedText('GST:', `₹${invoiceData.tax_amount.toLocaleString('en-IN')}`, 8);
+  addJustifiedText('Subtotal:', `Rs.${invoiceData.subtotal.toFixed(2)}`, 8);
+  addJustifiedText('GST:', `Rs.${invoiceData.tax_amount.toFixed(2)}`, 8);
   addDashedLine();
-  addJustifiedText('TOTAL:', `₹${invoiceData.total_amount.toLocaleString('en-IN')}`, 10);
+  addJustifiedText('TOTAL:', `Rs.${invoiceData.total_amount.toFixed(2)}`, 10);
   
   addCenteredText(`Payment: ${invoiceData.payment_method.toUpperCase()}`, 9, true);
   
   addDashedLine();
   
   // Footer
-  addCenteredText('🙏 THANK YOU FOR SHOPPING! 🙏', 9, true);
+  addCenteredText('THANK YOU FOR SHOPPING!', 9, true);
   addCenteredText('Visit us again for more great deals', 7);
-  addCenteredText('💳 We accept Cash, Card, UPI payments', 7);
+  addCenteredText('We accept Cash, Card, UPI payments', 7);
   yPosition += 3;
-  addCenteredText('📞 Customer Care: +91-9966160298', 6);
-  addCenteredText('⭐ Rate us on Google for better service', 6);
+  addCenteredText('Customer Care: +91-9966160298', 6);
+  addCenteredText('Rate us on Google for better service', 6);
 
   return doc.output('datauristring');
 };
