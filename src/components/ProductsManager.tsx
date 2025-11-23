@@ -19,11 +19,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+interface UnitVariant {
+  unit: string;
+  quantity: number;
+  price: number;
+}
+
 interface Product {
   id: string;
   name: string;
   price: number;
   cost_price: number;
+  old_purchase_price: number | null;
+  new_purchase_price: number | null;
+  base_unit: string | null;
+  base_unit_quantity: number | null;
+  unit_variants: UnitVariant[] | null;
   stock_quantity: number | null;
   sku: string;
   barcode: string | null;
@@ -50,6 +61,10 @@ export function ProductsManager() {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [costPrice, setCostPrice] = useState("");
+  const [oldPurchasePrice, setOldPurchasePrice] = useState("");
+  const [newPurchasePrice, setNewPurchasePrice] = useState("");
+  const [baseUnit, setBaseUnit] = useState("pc");
+  const [baseUnitQuantity, setBaseUnitQuantity] = useState("1");
   const [stockQuantity, setStockQuantity] = useState("");
   const [sku, setSku] = useState("");
   const [barcode, setBarcode] = useState("");
@@ -57,6 +72,10 @@ export function ProductsManager() {
   const [minStockLevel, setMinStockLevel] = useState("");
   const [gstRate, setGstRate] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  
+  // Unit calculator state
+  const [showUnitCalculator, setShowUnitCalculator] = useState(false);
+  const [calculatedUnits, setCalculatedUnits] = useState<UnitVariant[]>([]);
 
   useEffect(() => {
     fetchProducts();
@@ -70,7 +89,11 @@ export function ProductsManager() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setProducts(data || []);
+      const productsWithParsedVariants = (data || []).map(p => ({
+        ...p,
+        unit_variants: p.unit_variants ? (p.unit_variants as unknown as UnitVariant[]) : null
+      }));
+      setProducts(productsWithParsedVariants);
     } catch (error) {
       toast({
         title: "Error",
@@ -86,6 +109,10 @@ export function ProductsManager() {
     setName("");
     setPrice("");
     setCostPrice("");
+    setOldPurchasePrice("");
+    setNewPurchasePrice("");
+    setBaseUnit("pc");
+    setBaseUnitQuantity("1");
     setStockQuantity("");
     setSku("");
     setBarcode("");
@@ -93,8 +120,31 @@ export function ProductsManager() {
     setMinStockLevel("");
     setGstRate("");
     setImageUrl("");
+    setCalculatedUnits([]);
+    setShowUnitCalculator(false);
     setEditingProduct(null);
     setShowForm(false);
+  };
+
+  const calculateUnitPrices = () => {
+    if (!newPurchasePrice || !baseUnitQuantity) {
+      toast({ title: "Error", description: "Enter new purchase price and base unit quantity first", variant: "destructive" });
+      return;
+    }
+
+    const basePrice = parseFloat(newPurchasePrice);
+    const baseQty = parseFloat(baseUnitQuantity);
+    const pricePerUnit = basePrice / baseQty;
+
+    const units = [10, 50, 100, 250, 500, 1000];
+    const variants: UnitVariant[] = units.map(qty => ({
+      unit: baseUnit === "gm" && qty >= 1000 ? `${qty/1000}kg` : `${qty}${baseUnit}`,
+      quantity: qty,
+      price: parseFloat((pricePerUnit * qty).toFixed(2))
+    }));
+
+    setCalculatedUnits(variants);
+    setShowUnitCalculator(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -106,6 +156,11 @@ export function ProductsManager() {
         name,
         price: parseFloat(price),
         cost_price: parseFloat(costPrice),
+        old_purchase_price: oldPurchasePrice ? parseFloat(oldPurchasePrice) : null,
+        new_purchase_price: newPurchasePrice ? parseFloat(newPurchasePrice) : null,
+        base_unit: baseUnit || 'pc',
+        base_unit_quantity: baseUnitQuantity ? parseFloat(baseUnitQuantity) : 1,
+        unit_variants: calculatedUnits.length > 0 ? (calculatedUnits as any) : null,
         stock_quantity: stockQuantity ? parseInt(stockQuantity) : 0,
         sku,
         barcode: barcode || null,
@@ -149,6 +204,11 @@ export function ProductsManager() {
     setName(product.name);
     setPrice(product.price.toString());
     setCostPrice(product.cost_price.toString());
+    setOldPurchasePrice(product.old_purchase_price?.toString() || "");
+    setNewPurchasePrice(product.new_purchase_price?.toString() || "");
+    setBaseUnit(product.base_unit || "pc");
+    setBaseUnitQuantity(product.base_unit_quantity?.toString() || "1");
+    setCalculatedUnits(product.unit_variants || []);
     setStockQuantity(product.stock_quantity?.toString() || "");
     setSku(product.sku);
     setBarcode(product.barcode || "");
@@ -253,6 +313,57 @@ export function ProductsManager() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="oldPurchasePrice">Old Purchase Price (₹)</Label>
+                  <Input
+                    id="oldPurchasePrice"
+                    type="number"
+                    step="0.01"
+                    value={oldPurchasePrice}
+                    onChange={(e) => setOldPurchasePrice(e.target.value)}
+                    placeholder="Previous purchase price"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="newPurchasePrice">New Purchase Price (₹)</Label>
+                  <Input
+                    id="newPurchasePrice"
+                    type="number"
+                    step="0.01"
+                    value={newPurchasePrice}
+                    onChange={(e) => setNewPurchasePrice(e.target.value)}
+                    placeholder="Current purchase price"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="baseUnit">Base Unit</Label>
+                  <Select value={baseUnit} onValueChange={setBaseUnit}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gm">Grams (gm)</SelectItem>
+                      <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                      <SelectItem value="ltr">Liters (ltr)</SelectItem>
+                      <SelectItem value="ml">Milliliters (ml)</SelectItem>
+                      <SelectItem value="pc">Pieces (pc)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="baseUnitQuantity">Base Unit Quantity</Label>
+                  <Input
+                    id="baseUnitQuantity"
+                    type="number"
+                    step="0.01"
+                    value={baseUnitQuantity}
+                    onChange={(e) => setBaseUnitQuantity(e.target.value)}
+                    placeholder="e.g., 1000 for 1kg"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    For price per 1kg, enter 1000 if base unit is gm
+                  </p>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="stockQuantity">Stock Quantity</Label>
                   <Input
                     id="stockQuantity"
@@ -327,6 +438,42 @@ export function ProductsManager() {
                   </div>
                 )}
               </div>
+
+              {/* Unit Price Calculator */}
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/50">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-semibold">Unit Price Calculator</Label>
+                  <Button 
+                    type="button" 
+                    variant="secondary" 
+                    size="sm"
+                    onClick={calculateUnitPrices}
+                    disabled={!newPurchasePrice || !baseUnitQuantity}
+                  >
+                    Calculate Prices
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Enter new purchase price and base unit quantity, then click calculate to see prices for different units
+                </p>
+                
+                {showUnitCalculator && calculatedUnits.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <Label className="text-sm font-medium">Calculated Unit Prices:</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {calculatedUnits.map((variant, idx) => (
+                        <div key={idx} className="p-2 bg-background rounded border">
+                          <div className="text-sm font-medium">{variant.unit}</div>
+                          <div className="text-lg font-bold text-primary">₹{variant.price.toFixed(2)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      These unit variants will be saved with the product for easy reference
+                    </p>
+                  </div>
+                )}
+              </div>
               <div className="flex gap-2">
                 <Button type="submit">
                   {editingProduct ? "Update Product" : "Add Product"}
@@ -361,9 +508,11 @@ export function ProductsManager() {
                 <TableRow>
                   <TableHead>Product</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Cost</TableHead>
-                  <TableHead>Profit</TableHead>
+                  <TableHead>Selling Price</TableHead>
+                  <TableHead>Cost Price</TableHead>
+                  <TableHead>Old Purchase</TableHead>
+                  <TableHead>New Purchase</TableHead>
+                  <TableHead>Unit Prices</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
@@ -400,9 +549,45 @@ export function ProductsManager() {
                     </TableCell>
                     <TableCell>₹{product.cost_price.toLocaleString('en-IN')}</TableCell>
                     <TableCell>
-                      <span className="text-success font-medium">
-                        {((product.price - product.cost_price) / product.cost_price * 100).toFixed(1)}%
-                      </span>
+                      {product.old_purchase_price ? (
+                        <span className="text-sm">₹{product.old_purchase_price.toFixed(2)}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {product.new_purchase_price ? (
+                        <div>
+                          <span className="font-medium">₹{product.new_purchase_price.toFixed(2)}</span>
+                          {product.old_purchase_price && product.new_purchase_price !== product.old_purchase_price && (
+                            <Badge 
+                              variant={product.new_purchase_price > product.old_purchase_price ? "destructive" : "default"}
+                              className="ml-2"
+                            >
+                              {product.new_purchase_price > product.old_purchase_price ? '+' : ''}
+                              {((product.new_purchase_price - product.old_purchase_price) / product.old_purchase_price * 100).toFixed(1)}%
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {product.unit_variants && product.unit_variants.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {product.unit_variants.slice(0, 3).map((variant, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs">
+                              {variant.unit}: ₹{variant.price.toFixed(2)}
+                            </Badge>
+                          ))}
+                          {product.unit_variants.length > 3 && (
+                            <Badge variant="outline" className="text-xs">+{product.unit_variants.length - 3}</Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No units</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span className={product.stock_quantity && product.min_stock_level && product.stock_quantity <= product.min_stock_level ? "text-warning font-medium" : ""}>

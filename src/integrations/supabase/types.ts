@@ -147,6 +147,8 @@ export type Database = {
       products: {
         Row: {
           barcode: string | null
+          base_unit: string | null
+          base_unit_quantity: number | null
           category: string | null
           cost_price: number
           created_at: string | null
@@ -157,13 +159,18 @@ export type Database = {
           location_id: string
           min_stock_level: number | null
           name: string
+          new_purchase_price: number | null
+          old_purchase_price: number | null
           price: number
           sku: string
           stock_quantity: number | null
+          unit_variants: Json | null
           updated_at: string | null
         }
         Insert: {
           barcode?: string | null
+          base_unit?: string | null
+          base_unit_quantity?: number | null
           category?: string | null
           cost_price: number
           created_at?: string | null
@@ -174,13 +181,18 @@ export type Database = {
           location_id?: string
           min_stock_level?: number | null
           name: string
+          new_purchase_price?: number | null
+          old_purchase_price?: number | null
           price: number
           sku: string
           stock_quantity?: number | null
+          unit_variants?: Json | null
           updated_at?: string | null
         }
         Update: {
           barcode?: string | null
+          base_unit?: string | null
+          base_unit_quantity?: number | null
           category?: string | null
           cost_price?: number
           created_at?: string | null
@@ -191,9 +203,12 @@ export type Database = {
           location_id?: string
           min_stock_level?: number | null
           name?: string
+          new_purchase_price?: number | null
+          old_purchase_price?: number | null
           price?: number
           sku?: string
           stock_quantity?: number | null
+          unit_variants?: Json | null
           updated_at?: string | null
         }
         Relationships: [
