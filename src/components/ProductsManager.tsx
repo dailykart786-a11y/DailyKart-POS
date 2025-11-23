@@ -136,12 +136,50 @@ export function ProductsManager() {
     const baseQty = parseFloat(baseUnitQuantity);
     const pricePerUnit = basePrice / baseQty;
 
-    const units = [10, 50, 100, 250, 500, 1000];
-    const variants: UnitVariant[] = units.map(qty => ({
-      unit: baseUnit === "gm" && qty >= 1000 ? `${qty/1000}kg` : `${qty}${baseUnit}`,
-      quantity: qty,
-      price: parseFloat((pricePerUnit * qty).toFixed(2))
-    }));
+    let variants: UnitVariant[] = [];
+
+    // Generate variants based on unit type
+    if (baseUnit === "gm") {
+      // For grams: show common weights in both grams and kilograms
+      const quantities = [10, 50, 100, 250, 500, 1000, 2000, 5000];
+      variants = quantities.map(qty => ({
+        unit: qty >= 1000 ? `${qty/1000}kg` : `${qty}gm`,
+        quantity: qty,
+        price: parseFloat((pricePerUnit * qty).toFixed(2))
+      }));
+    } else if (baseUnit === "kg") {
+      // For kilograms: show fractions and whole kilos
+      const quantities = [0.25, 0.5, 1, 2, 5, 10];
+      variants = quantities.map(qty => ({
+        unit: qty < 1 ? `${qty * 1000}gm` : `${qty}kg`,
+        quantity: qty,
+        price: parseFloat((pricePerUnit * qty).toFixed(2))
+      }));
+    } else if (baseUnit === "ml") {
+      // For milliliters: show common sizes including liters
+      const quantities = [50, 100, 250, 500, 1000, 2000, 5000];
+      variants = quantities.map(qty => ({
+        unit: qty >= 1000 ? `${qty/1000}ltr` : `${qty}ml`,
+        quantity: qty,
+        price: parseFloat((pricePerUnit * qty).toFixed(2))
+      }));
+    } else if (baseUnit === "ltr") {
+      // For liters: show fractions and whole liters
+      const quantities = [0.25, 0.5, 1, 2, 5, 10];
+      variants = quantities.map(qty => ({
+        unit: qty < 1 ? `${qty * 1000}ml` : `${qty}ltr`,
+        quantity: qty,
+        price: parseFloat((pricePerUnit * qty).toFixed(2))
+      }));
+    } else if (baseUnit === "pc") {
+      // For pieces: show common pack sizes
+      const quantities = [1, 2, 3, 5, 6, 10, 12, 24];
+      variants = quantities.map(qty => ({
+        unit: qty === 1 ? `${qty}pc` : `${qty}pcs`,
+        quantity: qty,
+        price: parseFloat((pricePerUnit * qty).toFixed(2))
+      }));
+    }
 
     setCalculatedUnits(variants);
     setShowUnitCalculator(true);
