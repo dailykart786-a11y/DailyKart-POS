@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { callAdminUsers } from "@/lib/adminUsers";
+import { useStore } from "@/hooks/useStore";
 
 interface Profile {
   id: string;
@@ -29,6 +30,9 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
   const [email, setEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const { stores } = useStore();
+  const [storeId, setStoreId] = useState<string>("");
+  const [originalStoreId, setOriginalStoreId] = useState<string>("");
 
   // Reset form when user changes
   useEffect(() => {
@@ -37,6 +41,17 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
       setRole(userRole || "cashier");
       setEmail("");
       setNewPassword("");
+      setStoreId("");
+      setOriginalStoreId("");
+      supabase
+        .from('user_location_assignments')
+        .select('location_id')
+        .eq('user_id', user.user_id)
+        .maybeSingle()
+        .then(({ data }) => {
+          setStoreId(data?.location_id || "");
+          setOriginalStoreId(data?.location_id || "");
+        });
     }
   }, [user, userRole]);
 
@@ -73,6 +88,14 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
           .from('user_roles')
           .insert({ user_id: user.user_id, role });
         if (roleInsertError) throw roleInsertError;
+      }
+
+      // Move the user to another store
+      if (storeId && storeId !== originalStoreId) {
+        const { error: storeError } = await supabase
+          .from('user_location_assignments')
+          .upsert({ user_id: user.user_id, location_id: storeId }, { onConflict: 'user_id' });
+        if (storeError) throw storeError;
       }
 
       // Update email / password through the admin-users function
@@ -152,6 +175,22 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
               </SelectContent>
             </Select>
           </div>
+          {stores.length > 1 && (
+            <div className="space-y-2">
+              <Label>Store</Label>
+              <Select value={storeId} onValueChange={setStoreId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select store" />
+                </SelectTrigger>
+                <SelectContent>
+                  {stores.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Cashiers and managers only see this store's products, bills and customers.</p>
+            </div>
+          )}
           <div className="flex gap-2">
             <Button onClick={handleSave} disabled={loading}>
               {loading ? "Saving..." : "Save Changes"}

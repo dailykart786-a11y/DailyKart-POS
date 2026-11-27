@@ -11,6 +11,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
+import { useStore, ALL_STORES } from "@/hooks/useStore";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Store } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 interface LayoutProps {
@@ -19,6 +22,8 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const { user, signOut } = useAuth();
+  const { stores, isAdmin, selectedStoreId, setSelectedStoreId, homeStoreId } = useStore();
+  const homeStoreName = stores.find(s => s.id === homeStoreId)?.name;
 
   const handleSignOut = async () => {
     await signOut();
@@ -48,6 +53,24 @@ export function Layout({ children }: LayoutProps) {
             </div>
             
             <div className="flex items-center gap-2 md:gap-4">
+              {isAdmin && stores.length > 1 ? (
+                <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
+                  <SelectTrigger className="w-[130px] md:w-[180px]" aria-label="Store">
+                    <Store className="h-4 w-4 mr-1 shrink-0" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_STORES}>All stores</SelectItem>
+                    {stores.map(s => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : stores.length > 1 && homeStoreName ? (
+                <span className="hidden sm:flex items-center gap-1 text-sm text-muted-foreground">
+                  <Store className="h-4 w-4" /> {homeStoreName}
+                </span>
+              ) : null}
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium">{user?.user_metadata?.full_name || 'User'}</p>
                 <p className="text-xs text-muted-foreground">{user?.email}</p>

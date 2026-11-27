@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Users, Shield, Eye, EyeOff, Edit, Trash2 } from "lucide-react";
 import { UserEditDialog } from "@/components/UserEditDialog";
+import { StoresManager } from "@/components/StoresManager";
 import { callAdminUsers } from "@/lib/adminUsers";
 import {
   Table,
@@ -440,6 +441,9 @@ export default function UserManagement() {
             )}
           </CardContent>
         </Card>
+
+        {/* Stores */}
+        <StoresManager />
 
         {/* Role Permissions */}
         <Card>

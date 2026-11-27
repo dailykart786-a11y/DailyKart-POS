@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Calendar, DollarSign } from "lucide-react";
@@ -29,6 +30,7 @@ const expenseCategories = [
 
 export default function Expenses() {
   const { user } = useAuth();
+  const { filterStoreId, newRecordFields } = useStore();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -39,13 +41,13 @@ export default function Expenses() {
 
   useEffect(() => {
     fetchExpenses();
-  }, []);
+  }, [filterStoreId]);
 
   const fetchExpenses = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await inStore(supabase
         .from('expenses')
-        .select('*')
+        .select('*'), filterStoreId)
         .order('date', { ascending: false });
 
       if (error) throw error;
@@ -73,7 +75,8 @@ export default function Expenses() {
           category,
           description: description || null,
           date,
-          created_by: user.id
+          created_by: user.id,
+          ...newRecordFields
         });
 
       if (error) throw error;

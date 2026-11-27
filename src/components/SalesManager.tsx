@@ -14,6 +14,7 @@ import { WhatsAppIntegration } from "@/components/WhatsAppIntegration";
 import { AddCustomerDialog } from "@/components/AddCustomerDialog";
 import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { useStore, inStore } from "@/hooks/useStore";
 import {
   buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
   DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
@@ -74,6 +75,9 @@ interface SaleItem {
 
 export function SalesManager() {
   const { user } = useAuth();
+  const { isAdmin, workingStoreId, newRecordFields } = useStore();
+  // Admins bill for the selected store (or their own store when "All stores" is picked)
+  const billingStoreFilter = isAdmin ? workingStoreId : null;
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -94,7 +98,7 @@ export function SalesManager() {
   useEffect(() => {
     fetchData();
     fetchPaymentSettings();
-  }, []);
+  }, [billingStoreFilter]);
 
   useEffect(() => {
     if (!user) return;
@@ -168,8 +172,8 @@ export function SalesManager() {
   const fetchData = async () => {
     try {
       const [productsRes, customersRes] = await Promise.all([
-        supabase.from('products').select('*').eq('is_active', true),
-        supabase.from('customers').select('*')
+        inStore(supabase.from('products').select('*').eq('is_active', true), billingStoreFilter),
+        inStore(supabase.from('customers').select('*'), billingStoreFilter)
       ]);
 
       if (productsRes.error) throw productsRes.error;
@@ -307,7 +311,8 @@ export function SalesManager() {
             name: customerData.name.trim(),
             phone: customerData.phone.trim() || null,
             email: customerData.email.trim() || null,
-            address: customerData.address.trim() || null
+            address: customerData.address.trim() || null,
+            ...newRecordFields
           })
           .select()
           .single();
@@ -383,7 +388,7 @@ export function SalesManager() {
       const customer = customerId || selectedCustomer || null;
 
       // Save bill + items + stock in one database step
-      const { data: savedSale, error: rpcError } = await supabase.rpc('create_sale', {
+      const saleArgs: Record<string, any> = {
         p_items: cart.map(item => ({
           product_id: item.product.id,
           quantity: item.quantity,
@@ -391,7 +396,15 @@ export function SalesManager() {
         })),
         p_customer_id: customer,
         p_payment_method: paymentMethod
-      });
+      };
+      if (billingStoreFilter) saleArgs.p_location_id = billingStoreFilter;
+
+      let { data: savedSale, error: rpcError } = await supabase.rpc('create_sale', saleArgs as any);
+      if (rpcError && rpcError.code === 'PGRST202' && saleArgs.p_location_id) {
+        // Database has the older create_sale without the store option
+        const { p_location_id, ...older } = saleArgs;
+        ({ data: savedSale, error: rpcError } = await supabase.rpc('create_sale', older as any));
+      }
 
       let sale = savedSale;
       if (rpcError) {
@@ -560,7 +573,8 @@ export function SalesManager() {
                     ))}
                   </SelectContent>
                 </Select>
-                <AddCustomerDialog 
+                <AddCustomerDialog
+                  extraFields={newRecordFields}
                   onCustomerAdded={(newCustomer) => {
                     setCustomers(prev => [...prev, { ...newCustomer, loyalty_points: 0 }]);
                     setSelectedCustomer(newCustomer.id);
@@ -764,6 +778,12 @@ export function SalesManager() {
           open={showCustomerDialog}
           onOpenChange={setShowCustomerDialog}
           onSubmit={handleCustomerSubmit}
+          onSkip={async () => {
+            setCustomerEntryLoading(true);
+            const saved = await processSale(null);
+            setCustomerEntryLoading(false);
+            if (saved) setShowCustomerDialog(false);
+          }}
           isLoading={customerEntryLoading}
         />
 

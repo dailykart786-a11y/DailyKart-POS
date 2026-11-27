@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import { StoreProvider } from "@/hooks/useStore";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { RoleProtectedRoute } from "@/components/RoleProtectedRoute";
 import { ThemeProvider } from "@/hooks/useTheme";
@@ -23,6 +24,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider defaultTheme="light" storageKey="dailykart-theme">
       <AuthProvider>
+        <StoreProvider>
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -81,6 +83,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
+        </StoreProvider>
       </AuthProvider>
     </ThemeProvider>
   </QueryClientProvider>

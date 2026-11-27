@@ -39,6 +39,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { PaymentSettings } from "@/components/PaymentSettings";
 import { StoreDetailsSettings } from "@/components/StoreDetailsSettings";
+import { useStore, inStore } from "@/hooks/useStore";
 
 interface DashboardStats {
   todaySales: number;
@@ -76,6 +77,7 @@ const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', 'hsl(var(--warning)
 
 export function RealtimeDashboard() {
   const { user } = useAuth();
+  const { filterStoreId } = useStore();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats>({
     todaySales: 0,
@@ -137,7 +139,7 @@ export function RealtimeDashboard() {
       supabase.removeChannel(productsChannel);
       clearInterval(interval);
     };
-  }, []);
+  }, [filterStoreId]);
 
   const fetchDashboardData = async () => {
     try {
@@ -145,23 +147,23 @@ export function RealtimeDashboard() {
       const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       
       // Fetch today's sales
-      const { data: todaySales } = await supabase
+      const { data: todaySales } = await inStore(supabase
         .from('sales')
-        .select('total_amount')
+        .select('total_amount'), filterStoreId)
         .gte('created_at', today);
 
       // Fetch yesterday's sales for comparison
-      const { data: yesterdaySales } = await supabase
+      const { data: yesterdaySales } = await inStore(supabase
         .from('sales')
-        .select('total_amount')
+        .select('total_amount'), filterStoreId)
         .gte('created_at', yesterday)
         .lt('created_at', today);
 
       // Fetch total counts
       const [productsRes, customersRes, transactionsRes] = await Promise.all([
-        supabase.from('products').select('*', { count: 'exact' }),
-        supabase.from('customers').select('*', { count: 'exact' }),
-        supabase.from('sales').select('*', { count: 'exact' }).gte('created_at', today)
+        inStore(supabase.from('products').select('*', { count: 'exact' }), filterStoreId),
+        inStore(supabase.from('customers').select('*', { count: 'exact' }), filterStoreId),
+        inStore(supabase.from('sales').select('*', { count: 'exact' }), filterStoreId).gte('created_at', today)
       ]);
 
       // Calculate totals
@@ -187,9 +189,9 @@ export function RealtimeDashboard() {
       }).reverse();
 
       const salesDataPromises = last7Days.map(async (date) => {
-        const { data } = await supabase
+        const { data } = await inStore(supabase
           .from('sales')
-          .select('total_amount')
+          .select('total_amount'), filterStoreId)
           .gte('created_at', date)
           .lt('created_at', new Date(new Date(date).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
         
@@ -208,18 +210,19 @@ export function RealtimeDashboard() {
 
       // Fetch low stock products using the new function
       const { data: lowStock } = await supabase
-        .rpc('get_low_stock_products')
-        .limit(5);
+        .rpc('get_low_stock_products');
 
-      setLowStockProducts(lowStock || []);
+      setLowStockProducts(
+        (lowStock || []).filter((p: any) => !filterStoreId || p.location_id === filterStoreId).slice(0, 5)
+      );
 
       // Fetch recent transactions with customer names
-      const { data: recentSales } = await supabase
+      const { data: recentSales } = await inStore(supabase
         .from('sales')
         .select(`
           *,
           customers(name)
-        `)
+        `), filterStoreId)
         .order('created_at', { ascending: false })
         .limit(5);
 
@@ -234,9 +237,9 @@ export function RealtimeDashboard() {
       setRecentTransactions(formattedTransactions);
 
       // Fetch category data for pie chart
-      const { data: products } = await supabase
+      const { data: products } = await inStore(supabase
         .from('products')
-        .select('category, price, stock_quantity');
+        .select('category, price, stock_quantity'), filterStoreId);
 
       const categoryMap = new Map();
       products?.forEach(product => {

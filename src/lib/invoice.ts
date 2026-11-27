@@ -58,12 +58,10 @@ export async function getMyLocationId(userId: string): Promise<string | null> {
     .eq("user_id", userId)
     .maybeSingle();
   if (data?.location_id) return data.location_id;
-  const { data: def } = await supabase
-    .from("locations")
-    .select("id")
-    .eq("name", "Default Store")
-    .maybeSingle();
-  return def?.id ?? null;
+  const { data: all } = await supabase.from("locations").select("*").order("created_at", { ascending: true });
+  const rows = (all || []) as Array<{ id: string; name: string; is_default?: boolean }>;
+  const main = rows.find((r) => r.is_default) || rows.find((r) => r.name === "Default Store") || rows[0];
+  return main?.id ?? null;
 }
 
 export async function fetchStoreDetails(locationId: string | null | undefined): Promise<StoreDetails> {
