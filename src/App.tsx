@@ -109,14 +109,14 @@ const App = () => (
               } />
               <Route path="/stock" element={
                 <ProtectedRoute>
-                  <RoleProtectedRoute requiredPermission="products">
+                  <RoleProtectedRoute requiredPermission="stock">
                     <Stock />
                   </RoleProtectedRoute>
                 </ProtectedRoute>
               } />
               <Route path="/offers" element={
                 <ProtectedRoute>
-                  <RoleProtectedRoute requiredPermission="products">
+                  <RoleProtectedRoute requiredPermission="offers">
                     <Offers />
                   </RoleProtectedRoute>
                 </ProtectedRoute>
