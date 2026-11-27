@@ -10,7 +10,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Edit, Trash2, Package } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Barcode, Wand2 } from "lucide-react";
+import { generateShopBarcode, printLabels } from "@/lib/labels";
 import {
   Table,
   TableBody,
@@ -465,12 +466,17 @@ export function ProductsManager() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="barcode">Barcode</Label>
-                <Input
-                  id="barcode"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="Enter barcode"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="barcode"
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    placeholder="Scan or type the barcode"
+                  />
+                  <Button type="button" variant="outline" onClick={() => setBarcode(generateShopBarcode())} className="gap-1 shrink-0" title="Make a barcode for items that don't have one">
+                    <Wand2 className="h-4 w-4" /> New
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="imageUrl">Product Image URL</Label>
@@ -661,6 +667,20 @@ export function ProductsManager() {
                           onClick={() => handleEdit(product)}
                         >
                           <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Print barcode label"
+                          aria-label="Print barcode label"
+                          onClick={() => {
+                            if (!printLabels([{ product, copies: 1 }])) {
+                              toast({ title: "Can't print label", description: "Add a barcode or SKU, and allow pop-ups for this site", variant: "destructive" });
+                            }
+                          }}
+                        >
+                          <Barcode className="h-3 w-3" />
                         </Button>
                         <Button 
                           variant="destructive" 
