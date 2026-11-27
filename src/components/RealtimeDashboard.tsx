@@ -38,6 +38,7 @@ import {
 } from 'recharts';
 import { useNavigate } from "react-router-dom";
 import { PaymentSettings } from "@/components/PaymentSettings";
+import { StoreDetailsSettings } from "@/components/StoreDetailsSettings";
 
 interface DashboardStats {
   todaySales: number;
@@ -524,6 +525,9 @@ export function RealtimeDashboard() {
         {user && (
           <PaymentSettingsSection />
         )}
+
+        {/* Shop details printed on bills - admin and manager */}
+        {user && <StoreDetailsSettings />}
       </div>
     </div>
   );

@@ -7,7 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { MessageCircle, Send, FileText, Share, Download, FileUp } from "lucide-react";
-import { generateInvoicePDF, downloadPDF } from "@/utils/pdfGenerator";
+import { generateInvoicePDF, generateGstInvoicePDF, downloadPDF } from "@/utils/pdfGenerator";
+import { receiptText } from "@/lib/invoice";
 
 interface WhatsAppIntegrationProps {
   type: 'invoice' | 'order' | 'custom';
@@ -43,6 +44,7 @@ export function WhatsAppIntegration({
 
   const generateInvoiceMessage = () => {
     if (!data) return '';
+    if (data.invoice) return receiptText(data.invoice);
     
     const currentTime = new Date().toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
@@ -72,7 +74,7 @@ export function WhatsAppIntegration({
 ═══════════════════════════════════
 ${data.items?.map((item: any, index: number) => 
   `${index + 1}. ${item.product_name}
-   Qty: ${item.quantity} × ₹${(parseFloat(item.total_price.replace(/,/g, '')) / item.quantity).toFixed(2)}
+   Qty: ${item.quantity} × ₹${(parseFloat(String(item.total_price).replace(/,/g, '')) / item.quantity).toFixed(2)}
    Amount: ₹${item.total_price}`
 ).join('\n\n') || 'No items'}
 
@@ -215,7 +217,7 @@ Thank you for choosing DailyKart! 🛒
       total_amount: typeof data.total_amount === 'number' ? data.total_amount : parseFloat(data.total_amount?.replace(/,/g, '') || '0')
     };
 
-    const pdfDataUri = generateInvoicePDF(invoiceData);
+    const pdfDataUri = data.invoice ? generateGstInvoicePDF(data.invoice) : generateInvoicePDF(invoiceData);
     const filename = `Invoice-${invoiceData.invoice_number}.pdf`;
     
     if (shareMethod === 'pdf') {

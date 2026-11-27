@@ -42,6 +42,7 @@ interface Product {
   is_active: boolean | null;
   min_stock_level: number | null;
   gst_rate: number | null;
+  hsn_code?: string | null;
   image_url: string | null;
 }
 
@@ -71,6 +72,7 @@ export function ProductsManager() {
   const [category, setCategory] = useState("");
   const [minStockLevel, setMinStockLevel] = useState("");
   const [gstRate, setGstRate] = useState("");
+  const [hsnCode, setHsnCode] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   
   // Unit calculator state
@@ -119,6 +121,7 @@ export function ProductsManager() {
     setCategory("");
     setMinStockLevel("");
     setGstRate("");
+    setHsnCode("");
     setImageUrl("");
     setCalculatedUnits([]);
     setShowUnitCalculator(false);
@@ -190,7 +193,7 @@ export function ProductsManager() {
     if (!user) return;
 
     try {
-      const productData = {
+      const productData: Record<string, any> = {
         name,
         price: parseFloat(price),
         cost_price: parseFloat(costPrice),
@@ -208,23 +211,24 @@ export function ProductsManager() {
         image_url: imageUrl || null,
         is_active: true
       };
-
-      if (editingProduct) {
-        const { error } = await supabase
-          .from('products')
-          .update(productData)
-          .eq('id', editingProduct.id);
-
-        if (error) throw error;
-        toast({ title: "Success", description: "Product updated successfully" });
-      } else {
-        const { error } = await supabase
-          .from('products')
-          .insert(productData);
-
-        if (error) throw error;
-        toast({ title: "Success", description: "Product added successfully" });
+      // Only send HSN when there is one, so saving still works before the GST database update
+      if (hsnCode.trim() || editingProduct?.hsn_code) {
+        productData.hsn_code = hsnCode.trim().replace(/\s/g, '') || null;
       }
+
+      const save = (data: Record<string, any>) => editingProduct
+        ? supabase.from('products').update(data as any).eq('id', editingProduct.id)
+        : supabase.from('products').insert(data as any);
+
+      let { error } = await save(productData);
+      if (error && 'hsn_code' in productData && /hsn_code/.test(error.message || '')) {
+        // Database doesn't have the HSN column yet: save everything else
+        const { hsn_code, ...rest } = productData;
+        ({ error } = await save(rest));
+        if (!error) toast({ title: "HSN not saved", description: "Ask your admin to run the GST database update to store HSN codes" });
+      }
+      if (error) throw error;
+      toast({ title: "Success", description: editingProduct ? "Product updated successfully" : "Product added successfully" });
 
       resetForm();
       fetchProducts();
@@ -253,6 +257,7 @@ export function ProductsManager() {
     setCategory(product.category || "");
     setMinStockLevel(product.min_stock_level?.toString() || "");
     setGstRate(product.gst_rate?.toString() || "");
+    setHsnCode(product.hsn_code || "");
     setImageUrl(product.image_url || "");
     setShowForm(true);
   };
@@ -445,6 +450,16 @@ export function ProductsManager() {
                     placeholder="Enter GST rate"
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hsnCode">HSN code</Label>
+                <Input
+                  id="hsnCode"
+                  value={hsnCode}
+                  onChange={(e) => setHsnCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
+                  placeholder="e.g. 1006 for rice"
+                  inputMode="numeric"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="barcode">Barcode</Label>
