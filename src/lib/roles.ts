@@ -24,13 +24,14 @@ export const PERMISSIONS: { key: string; label: string }[] = [
   { key: "expenses", label: "Expenses" },
   { key: "reports", label: "Reports & GST" },
   { key: "accounts", label: "Accounts" },
+  { key: "staff", label: "Staff & salary" },
   { key: "audit", label: "Activity log" },
 ];
 
 export const EDITABLE_ROLES = ["manager", "cashier", "inventory", "accountant"] as const;
 
 export const DEFAULT_PERMISSIONS: Record<string, string[]> = {
-  manager: ["sales", "register", "khata", "returns", "purchases", "products", "stock", "customers", "expenses", "reports", "offers", "audit"],
+  manager: ["sales", "register", "khata", "returns", "purchases", "products", "stock", "customers", "expenses", "reports", "offers", "audit", "staff"],
   cashier: ["sales", "register", "khata"],
   inventory: ["products", "stock", "purchases"],
   accountant: ["khata", "expenses", "reports", "accounts", "audit"],
