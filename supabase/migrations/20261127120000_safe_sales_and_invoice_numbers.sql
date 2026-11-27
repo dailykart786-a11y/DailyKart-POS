@@ -33,6 +33,10 @@ grant select, insert, update on public.invoice_counters to service_role;
 -- p_items: [{"product_id": "...", "quantity": 2, "discount": 10}, ...]
 --          discount is a percent (0-100) on that line.
 -- ---------------------------------------------------------------------
+-- Remove any older version first, so there is only ever one create_sale
+drop function if exists public.create_sale(jsonb, uuid, text);
+drop function if exists public.create_sale(jsonb, uuid, text, uuid);
+
 create or replace function public.create_sale(
   p_items jsonb,
   p_customer_id uuid default null,
