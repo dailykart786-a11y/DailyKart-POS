@@ -12,7 +12,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useStore, inStore } from "@/hooks/useStore";
 import { toast } from "@/hooks/use-toast";
 import { downloadCsv } from "@/lib/gstReport";
-import { Boxes, Download, MessageCircle, Printer, Save } from "lucide-react";
+import { Boxes, Download, MessageCircle, Printer, Save, CalendarClock } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Batch, BatchLeft, batchesWithLeft, daysUntil } from "@/lib/batches";
 
 interface Product {
   id: string; name: string; sku: string; barcode: string | null; category: string | null;
@@ -46,6 +51,14 @@ export default function Stock() {
   const [lastBuy, setLastBuy] = useState<Record<string, LastBuy>>({});
   const [history, setHistory] = useState<Adjustment[]>([]);
   const [historyMissing, setHistoryMissing] = useState(false);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [batchesMissing, setBatchesMissing] = useState(false);
+  const [clearing, setClearing] = useState<{ batch: BatchLeft; remove: boolean } | null>(null);
+  const [bPick, setBPick] = useState("");
+  const [bProduct, setBProduct] = useState<Product | null>(null);
+  const [bNo, setBNo] = useState("");
+  const [bExpiry, setBExpiry] = useState("");
+  const [bQty, setBQty] = useState("");
   const [busy, setBusy] = useState(false);
 
   const [pick, setPick] = useState("");
@@ -95,6 +108,67 @@ export default function Stock() {
     } else {
       setHistoryMissing(false);
       setHistory((hRes.data || []) as any);
+    }
+
+    const bRes = await inStore(
+      supabase.from("product_batches" as any).select("id, product_id, batch_no, expiry_date, quantity, created_at, cleared_at").is("cleared_at", null),
+      filterStoreId,
+    ).order("created_at", { ascending: false }).limit(2000);
+    setBatchesMissing(!!bRes.error);
+    setBatches(bRes.error ? [] : ((bRes.data || []) as any[]).map((b) => ({ ...b, quantity: Number(b.quantity) })));
+  };
+
+  const productById = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p])), [products]);
+  const expiryList = useMemo(() => {
+    const stock = Object.fromEntries(products.map((p) => [p.id, p.stock_quantity]));
+    return batchesWithLeft(batches, stock)
+      .filter((b) => b.expiry_date && b.left > 0)
+      .sort((a, b) => (a.expiry_date || "").localeCompare(b.expiry_date || ""));
+  }, [batches, products]);
+  const expiringSoon = expiryList.filter((b) => daysUntil(b.expiry_date!) <= 30).length;
+
+  const clearBatch = async () => {
+    if (!clearing) return;
+    const { batch, remove } = clearing;
+    setBusy(true);
+    try {
+      if (remove && batch.left > 0) {
+        const { error } = await supabase.rpc("adjust_stock" as any, {
+          p_product_id: batch.product_id, p_quantity: -batch.left, p_reason: "expired", p_mode: "change",
+          p_note: `Batch ${batch.batch_no || ""} expiry ${batch.expiry_date || ""}`.trim(),
+        } as any);
+        if (error) throw error;
+      }
+      const { error } = await supabase.from("product_batches" as any).update({ cleared_at: new Date().toISOString() } as any).eq("id", batch.id);
+      if (error) throw error;
+      toast({ title: remove ? "Removed from stock" : "Batch hidden", description: productById[batch.product_id]?.name });
+      await load();
+    } catch (e: any) {
+      toast({ title: "Not saved", description: e?.message || "Failed", variant: "destructive" });
+    } finally {
+      setBusy(false);
+      setClearing(null);
+    }
+  };
+
+  const addBatch = async () => {
+    const q = parseInt(bQty, 10);
+    if (!bProduct) { toast({ title: "Pick a product", variant: "destructive" }); return; }
+    if (!bNo.trim() && !bExpiry) { toast({ title: "Enter a batch number or expiry date", variant: "destructive" }); return; }
+    if (!(q > 0)) { toast({ title: "Enter how many pieces are in this batch", variant: "destructive" }); return; }
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("product_batches" as any).insert({
+        product_id: bProduct.id, batch_no: bNo.trim() || null, expiry_date: bExpiry || null, quantity: q,
+      } as any);
+      if (error) throw error;
+      toast({ title: "Batch saved", description: `${bProduct.name}${bExpiry ? `, expires ${bExpiry}` : ""}` });
+      setBNo(""); setBExpiry(""); setBQty(""); setBProduct(null);
+      await load();
+    } catch (e: any) {
+      toast({ title: "Not saved", description: e?.message || "Failed", variant: "destructive" });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -207,10 +281,15 @@ export default function Stock() {
           <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Running low</div><div className="text-2xl font-bold text-warning">{summary.low}</div></CardContent></Card>
         </div>
 
+        <datalist id="adj-products">
+          {products.map((p) => <option key={p.id} value={p.name}>{p.sku}</option>)}
+        </datalist>
+
         <Tabs defaultValue="reorder">
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="reorder">Reorder list ({reorder.length})</TabsTrigger>
             <TabsTrigger value="adjust">Adjust stock</TabsTrigger>
+            <TabsTrigger value="expiry">Expiry{expiringSoon ? ` (${expiringSoon})` : ""}</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
@@ -279,9 +358,6 @@ export default function Stock() {
                     <Input id="adj-pick" list="adj-products" placeholder="Scan barcode or type product name, then Enter" value={pick}
                       onChange={(e) => setPick(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); choose(pick); } }} />
-                    <datalist id="adj-products">
-                      {products.map((p) => <option key={p.id} value={p.name}>{p.sku}</option>)}
-                    </datalist>
                     <Button type="button" variant="outline" onClick={() => choose(pick)} className="shrink-0">Select</Button>
                   </div>
                   {product && (
@@ -333,6 +409,103 @@ export default function Stock() {
                 <Button onClick={save} disabled={busy || !product} className="gap-2"><Save className="h-4 w-4" /> Save adjustment</Button>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="expiry" className="space-y-4">
+            {batchesMissing ? (
+              <Card><CardContent className="py-8 text-center text-muted-foreground">
+                Expiry tracking needs a database update. Ask your admin to run the latest dailykart-updates.sql in Supabase.
+              </CardContent></Card>
+            ) : (
+              <>
+                <Card>
+                  <CardHeader><CardTitle className="text-lg flex items-center gap-2"><CalendarClock className="h-5 w-5" /> Stock with an expiry date</CardTitle></CardHeader>
+                  <CardContent className="overflow-x-auto">
+                    {expiryList.length === 0 ? (
+                      <p className="text-muted-foreground py-6 text-center">No batches with expiry dates in stock. Add the expiry when you enter a purchase, or below.</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Product</TableHead>
+                            <TableHead>Batch</TableHead>
+                            <TableHead>Expiry</TableHead>
+                            <TableHead className="text-right">Probably left</TableHead>
+                            <TableHead></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {expiryList.map((b) => {
+                            const d = daysUntil(b.expiry_date!);
+                            return (
+                              <TableRow key={b.id}>
+                                <TableCell className="font-medium">{productById[b.product_id]?.name || "—"}</TableCell>
+                                <TableCell>{b.batch_no || "—"}</TableCell>
+                                <TableCell>
+                                  {b.expiry_date}{" "}
+                                  {d < 0 ? <Badge variant="destructive">Expired</Badge>
+                                    : d <= 30 ? <Badge className="bg-warning text-warning-foreground">{d === 0 ? "Today" : `${d} days`}</Badge>
+                                    : <span className="text-xs text-muted-foreground">{d} days</span>}
+                                </TableCell>
+                                <TableCell className="text-right">{b.left} of {b.quantity}</TableCell>
+                                <TableCell className="text-right whitespace-nowrap">
+                                  <Button size="sm" variant="outline" className="h-7 mr-1" disabled={busy} onClick={() => setClearing({ batch: b, remove: true })}>Remove from stock</Button>
+                                  <Button size="sm" variant="ghost" className="h-7" disabled={busy} onClick={() => setClearing({ batch: b, remove: false })}>Sold out</Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-2">"Probably left" assumes the oldest stock is sold first.</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-lg">Add expiry for stock already in the shop</CardTitle></CardHeader>
+                  <CardContent className="grid gap-3 sm:grid-cols-4 items-end">
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="b-pick">Product</Label>
+                      <Input id="b-pick" list="adj-products" placeholder="Type product name, then Enter" value={bProduct ? bProduct.name : bPick}
+                        onChange={(e) => { setBProduct(null); setBPick(e.target.value); }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          e.preventDefault();
+                          const t = bPick.trim().toLowerCase();
+                          const p = products.find((x) => x.name.toLowerCase() === t || (x.barcode || "").toLowerCase() === t || x.sku.toLowerCase() === t);
+                          if (p) { setBProduct(p); setBQty(String(p.stock_quantity || "")); } else toast({ title: "Product not found", variant: "destructive" });
+                        }}
+                        onBlur={() => {
+                          const p = products.find((x) => x.name.toLowerCase() === bPick.trim().toLowerCase());
+                          if (p && !bProduct) { setBProduct(p); setBQty(String(p.stock_quantity || "")); }
+                        }} />
+                    </div>
+                    <div className="space-y-2"><Label htmlFor="b-no">Batch no.</Label><Input id="b-no" value={bNo} onChange={(e) => setBNo(e.target.value)} /></div>
+                    <div className="space-y-2"><Label htmlFor="b-exp">Expiry</Label><Input id="b-exp" type="date" value={bExpiry} onChange={(e) => setBExpiry(e.target.value)} /></div>
+                    <div className="space-y-2"><Label htmlFor="b-qty">Pieces</Label><Input id="b-qty" inputMode="numeric" value={bQty} onChange={(e) => setBQty(e.target.value)} /></div>
+                    <Button onClick={addBatch} disabled={busy} className="gap-2 sm:col-span-1"><Save className="h-4 w-4" /> Save batch</Button>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+
+            <AlertDialog open={!!clearing} onOpenChange={(o) => !o && setClearing(null)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{clearing?.remove ? "Remove this batch from stock?" : "Mark this batch as sold out?"}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {clearing?.remove
+                      ? `${clearing.batch.left} of ${productById[clearing.batch.product_id]?.name || "this product"} will be taken off stock as expired, and the batch hidden from this list.`
+                      : "The batch is hidden from this list. Stock is not changed."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={clearBatch}>{clearing?.remove ? "Remove from stock" : "Sold out"}</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
 
           <TabsContent value="history">

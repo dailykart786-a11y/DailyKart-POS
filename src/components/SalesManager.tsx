@@ -30,6 +30,7 @@ import { useStore, inStore } from "@/hooks/useStore";
 import {
   QueuedSale, addToQueue, cacheGet, cacheSet, isNetworkError, isOffline, newClientRef, offlineBillNumber,
 } from "@/lib/offline";
+import { Batch, estimateLeft, todayIso } from "@/lib/batches";
 import {
   buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
   DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
@@ -247,7 +248,40 @@ export function SalesManager() {
     }
   };
 
+  // Products that probably still have expired pieces on the shelf
+  const [expiredStock, setExpiredStock] = useState<Record<string, string>>({});
+  const warnedExpired = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!products.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await inStore(
+          supabase.from('product_batches' as any).select('id, product_id, batch_no, expiry_date, quantity, created_at, cleared_at').is('cleared_at', null),
+          billingStoreFilter,
+        ).limit(2000);
+        if (error || cancelled) return;
+        const today = todayIso();
+        const by: Record<string, Batch[]> = {};
+        for (const b of (data || []) as any[]) (by[b.product_id] ||= []).push({ ...b, quantity: Number(b.quantity) });
+        const out: Record<string, string> = {};
+        for (const p of products) {
+          const list = by[p.id];
+          if (!list) continue;
+          const old = estimateLeft(list, p.stock_quantity ?? 0).find(b => b.left > 0 && b.expiry_date && b.expiry_date < today);
+          if (old) out[p.id] = old.expiry_date!;
+        }
+        setExpiredStock(out);
+      } catch { /* expiry warnings are optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, [products, billingStoreFilter]);
+
   const addToCart = (product: Product) => {
+    if (expiredStock[product.id] && !warnedExpired.current.has(product.id)) {
+      warnedExpired.current.add(product.id);
+      toast({ title: "Check the expiry date", description: `Some ${product.name} expired on ${expiredStock[product.id]}. Give the customer a fresh one.` });
+    }
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       const nextQty = (existing?.quantity || 0) + 1;
