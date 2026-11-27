@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Users, Shield, Eye, EyeOff, Edit, Trash2 } from "lucide-react";
 import { UserEditDialog } from "@/components/UserEditDialog";
+import { callAdminUsers } from "@/lib/adminUsers";
 import {
   Table,
   TableBody,
@@ -131,29 +132,13 @@ export default function UserManagement() {
     }
 
     try {
-      // Create user with Supabase Auth
-      const { data, error } = await supabase.auth.admin.createUser({
+      await callAdminUsers({
+        action: "create",
         email: newUserEmail,
         password: newUserPassword,
-        user_metadata: {
-          full_name: newUserName
-        },
-        email_confirm: true
+        fullName: newUserName,
+        role: newUserRole,
       });
-
-      if (error) throw error;
-
-      // Create user role
-      if (data.user) {
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .insert({
-            user_id: data.user.id,
-            role: newUserRole
-          });
-
-        if (roleError) throw roleError;
-      }
 
       toast({
         title: "User Created",
@@ -200,32 +185,20 @@ export default function UserManagement() {
     if (!window.confirm(`Are you sure you want to delete ${profile.full_name || 'this user'}?`)) return;
     
     try {
-      // Delete user role first
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', profile.user_id);
-
-      if (roleError) throw roleError;
-
-      // Delete profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', profile.id);
-
-      if (profileError) throw profileError;
+      const res = await callAdminUsers({ action: "delete", userId: profile.user_id });
 
       toast({
         title: "Success",
-        description: "User deleted successfully"
+        description: res.result === "deactivated"
+          ? "This user has past records, so their login was blocked instead of deleted."
+          : "User removed successfully"
       });
 
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to delete user",
+        description: error.message || "Failed to delete user",
         variant: "destructive"
       });
     }
