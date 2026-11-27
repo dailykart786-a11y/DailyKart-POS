@@ -13,6 +13,8 @@ import { toast } from "@/hooks/use-toast";
 import { isValidGstin } from "@/lib/invoice";
 import { Truck, Plus, Trash2, Save, IndianRupee, BookOpen } from "lucide-react";
 import { SupplierLedgerCard } from "@/components/SupplierLedgerCard";
+import { PurchaseOrdersTab } from "@/components/PurchaseOrdersTab";
+import { PurchaseReturnsTab } from "@/components/PurchaseReturnsTab";
 import { dueInfo } from "@/lib/statement";
 import { Badge } from "@/components/ui/badge";
 
@@ -206,9 +208,11 @@ export default function Purchases() {
           </CardContent></Card>
         ) : (
           <Tabs defaultValue="new">
-            <TabsList>
+            <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="new">New purchase</TabsTrigger>
+              <TabsTrigger value="orders">Orders</TabsTrigger>
               <TabsTrigger value="list">Purchase bills</TabsTrigger>
+              <TabsTrigger value="returns">Returns</TabsTrigger>
               <TabsTrigger value="suppliers">Suppliers{totalOwed > 0 ? ` (${rupees(totalOwed)} due)` : ""}</TabsTrigger>
             </TabsList>
 
@@ -317,6 +321,14 @@ export default function Purchases() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="orders">
+              <PurchaseOrdersTab products={products} suppliers={suppliers} onChanged={load} />
+            </TabsContent>
+
+            <TabsContent value="returns">
+              <PurchaseReturnsTab products={products} suppliers={suppliers} onChanged={load} />
             </TabsContent>
 
             <TabsContent value="list">
