@@ -11,7 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useStore, inStore } from "@/hooks/useStore";
 import { toast } from "@/hooks/use-toast";
-import { Offer, isOfferLive } from "@/lib/offers";
+import { Offer, isOfferLive, offerText } from "@/lib/offers";
+import { CouponsCard, DiscountRulesCard } from "@/components/DiscountSettings";
 import { todayIso } from "@/lib/batches";
 import { BadgePercent, Save, Star, Trash2 } from "lucide-react";
 
@@ -32,6 +33,11 @@ export default function Offers() {
 
   const [name, setName] = useState("");
   const [percent, setPercent] = useState("");
+  const [kind, setKind] = useState<"percent" | "flat" | "bxgy">("percent");
+  const [flat, setFlat] = useState("");
+  const [buyQty, setBuyQty] = useState("2");
+  const [getQty, setGetQty] = useState("1");
+  const [minBill, setMinBill] = useState("");
   const [scope, setScope] = useState<"all" | "category" | "product">("category");
   const [category, setCategory] = useState("");
   const [productName, setProductName] = useState("");
@@ -52,7 +58,7 @@ export default function Offers() {
     ]);
     if (oRes.error || lRes.error) { setMissing(true); return; }
     setMissing(false);
-    setOffers(((oRes.data || []) as any[]).map((o) => ({ ...o, percent: Number(o.percent) })));
+    setOffers(((oRes.data || []) as any[]).map((o) => ({ ...o, percent: o.percent == null ? null : Number(o.percent) })));
     setProducts((pRes.data || []) as any);
     const l = lRes.data as any;
     setSettings(l ? {
@@ -93,25 +99,37 @@ export default function Offers() {
 
   const addOffer = async () => {
     const pct = parseFloat(percent);
+    const flatAmt = parseFloat(flat);
+    const b = parseInt(buyQty, 10), g = parseInt(getQty, 10);
+    const mb = minBill.trim() ? parseFloat(minBill) : null;
     if (!name.trim()) { toast({ title: "Give the offer a name", variant: "destructive" }); return; }
-    if (!(pct > 0 && pct <= 90)) { toast({ title: "Discount should be between 1% and 90%", variant: "destructive" }); return; }
+    if (kind === "percent" && !(pct > 0 && pct <= 90)) { toast({ title: "Discount should be between 1% and 90%", variant: "destructive" }); return; }
+    if (kind === "flat" && !(flatAmt > 0)) { toast({ title: "Enter the rupees off each piece", variant: "destructive" }); return; }
+    if (kind === "bxgy" && !(b >= 1 && g >= 1)) { toast({ title: "Enter how many to buy and how many free", variant: "destructive" }); return; }
+    if (mb != null && !(mb >= 0)) { toast({ title: "Check the minimum bill", variant: "destructive" }); return; }
     const product = scope === "product" ? products.find((p) => p.name.toLowerCase() === productName.trim().toLowerCase()) : null;
     if (scope === "product" && !product) { toast({ title: "Pick a product from the list", variant: "destructive" }); return; }
     if (scope === "category" && !category) { toast({ title: "Pick a category", variant: "destructive" }); return; }
     if (ends && starts && ends < starts) { toast({ title: "End date is before the start date", variant: "destructive" }); return; }
     setBusy(true);
     try {
+      const typeFields: Record<string, any> = kind === "percent" && mb == null ? { percent: pct }
+        : { offer_type: kind, percent: kind === "percent" ? pct : null, flat_amount: kind === "flat" ? flatAmt : null,
+            buy_qty: kind === "bxgy" ? b : null, get_qty: kind === "bxgy" ? g : null, min_bill: mb };
       const { error } = await supabase.from("offers" as any).insert({
-        name: name.trim(), percent: pct,
+        name: name.trim(), ...typeFields,
         product_id: product?.id || null,
         category: scope === "category" ? category : null,
         min_qty: Math.max(1, parseInt(minQty, 10) || 1),
         starts_on: starts || null, ends_on: ends || null,
         ...newRecordFields,
       } as any);
-      if (error) throw error;
-      toast({ title: "Offer added", description: `${name.trim()}: ${pct}% off` });
-      setName(""); setPercent(""); setProductName(""); setMinQty("1"); setEnds("");
+      if (error) {
+        if (/offer_type|flat_amount|min_bill|buy_qty/.test(error.message || "")) throw new Error("This kind of offer needs the latest database update. Plain % offers work now.");
+        throw error;
+      }
+      toast({ title: "Offer added", description: name.trim() });
+      setName(""); setPercent(""); setFlat(""); setMinBill(""); setProductName(""); setMinQty("1"); setEnds("");
       load();
     } catch (e: any) {
       toast({ title: "Not saved", description: e?.message || "Failed", variant: "destructive" });
@@ -139,7 +157,7 @@ export default function Offers() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><BadgePercent className="h-6 w-6" /> Offers & loyalty</h1>
-          <p className="text-muted-foreground">Automatic discounts at the counter, and points for regular customers</p>
+          <p className="text-muted-foreground">Automatic discounts at the counter, coupons, discount limits, and points for regular customers</p>
         </div>
 
         {missing ? (
@@ -181,6 +199,9 @@ export default function Offers() {
               </Card>
             )}
 
+            {storeId && <DiscountRulesCard storeId={storeId} />}
+            {storeId && <CouponsCard storeId={storeId} />}
+
             <Card>
               <CardHeader><CardTitle className="text-lg">New offer</CardTitle></CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-4 items-end">
@@ -189,9 +210,38 @@ export default function Offers() {
                   <Input id="of-name" placeholder="e.g. Diwali 10% off sweets" value={name} onChange={(e) => setName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="of-pct">Discount %</Label>
-                  <Input id="of-pct" inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} />
+                  <Label>Kind</Label>
+                  <Select value={kind} onValueChange={(v: any) => setKind(v)}>
+                    <SelectTrigger aria-label="Kind of offer"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">% off</SelectItem>
+                      <SelectItem value="flat">₹ off each piece</SelectItem>
+                      <SelectItem value="bxgy">Buy X get Y free</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+                {kind === "percent" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="of-pct">Discount %</Label>
+                    <Input id="of-pct" inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} />
+                  </div>
+                )}
+                {kind === "flat" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="of-flat">₹ off each piece</Label>
+                    <Input id="of-flat" inputMode="decimal" value={flat} onChange={(e) => setFlat(e.target.value)} />
+                  </div>
+                )}
+                {kind === "bxgy" && (
+                  <div className="space-y-2">
+                    <Label>Buy / get free</Label>
+                    <div className="flex gap-2 items-center">
+                      <Input aria-label="Buy" inputMode="numeric" value={buyQty} onChange={(e) => setBuyQty(e.target.value)} />
+                      <span className="text-sm">+</span>
+                      <Input aria-label="Get free" inputMode="numeric" value={getQty} onChange={(e) => setGetQty(e.target.value)} />
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>On</Label>
                   <Select value={scope} onValueChange={(v: any) => setScope(v)}>
@@ -222,6 +272,10 @@ export default function Offers() {
                 <div className="space-y-2">
                   <Label htmlFor="of-min">When buying at least</Label>
                   <Input id="of-min" inputMode="numeric" value={minQty} onChange={(e) => setMinQty(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="of-minbill">Only on bills of at least ₹ (optional)</Label>
+                  <Input id="of-minbill" inputMode="decimal" value={minBill} onChange={(e) => setMinBill(e.target.value)} placeholder="Any bill" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="of-from">From</Label>
@@ -257,7 +311,7 @@ export default function Offers() {
                         <TableRow key={o.id}>
                           <TableCell className="font-medium">{o.name}{o.min_qty > 1 ? <div className="text-xs text-muted-foreground">Buy {o.min_qty} or more</div> : null}</TableCell>
                           <TableCell>{target(o)}</TableCell>
-                          <TableCell className="text-right">{o.percent}%</TableCell>
+                          <TableCell className="text-right">{offerText(o)}</TableCell>
                           <TableCell className="text-sm">{o.starts_on || "—"} to {o.ends_on || "no end"}</TableCell>
                           <TableCell>
                             {isOfferLive(o, today) ? <Badge>Running</Badge>

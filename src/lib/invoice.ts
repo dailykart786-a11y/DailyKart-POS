@@ -232,10 +232,11 @@ export function receiptHtml(inv: Invoice): string {
     : `<div class="row"><span>CGST</span><span>${money(inv.cgst)}</span></div>
        <div class="row"><span>SGST</span><span>${money(inv.sgst)}</span></div>`;
   const d = new Date(inv.createdAt || Date.now());
+  const w58 = getReceiptWidth() === "58";
   return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${esc(inv.invoiceNumber)}</title>
 <style>
-  @page { size: 80mm auto; margin: 3mm; }
-  body { margin: 0; font-family: monospace; font-size: 12px; width: 74mm; color: #000; }
+  @page { size: ${w58 ? "58mm" : "80mm"} auto; margin: ${w58 ? "2mm" : "3mm"}; }
+  body { margin: 0; font-family: monospace; font-size: ${w58 ? "10px" : "12px"}; width: ${w58 ? "54mm" : "74mm"}; color: #000; }
   .center { text-align: center; } .bold { font-weight: bold; } .small { font-size: 10px; }
   .big { font-size: 15px; }
   .row { display: flex; justify-content: space-between; gap: 4px; }
@@ -271,6 +272,16 @@ export function receiptHtml(inv: Invoice): string {
     ${s.bill_footer ? esc(s.bill_footer) : "Thank you for shopping! Visit again."}
   </div>
 </body></html>`;
+}
+
+export type ReceiptWidth = "58" | "80";
+const WIDTH_KEY = "dailykart-receipt-width";
+/** Paper width of this till's printer (kept on this device). */
+export function getReceiptWidth(): ReceiptWidth {
+  try { return localStorage.getItem(WIDTH_KEY) === "58" ? "58" : "80"; } catch { return "80"; }
+}
+export function setReceiptWidth(w: ReceiptWidth) {
+  try { localStorage.setItem(WIDTH_KEY, w); } catch { /* storage off */ }
 }
 
 /** Opens the print dialog for a receipt. */
