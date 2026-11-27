@@ -6,12 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ROLE_OPTIONS, roleBadgeClass, roleLabel } from "@/lib/roles";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Users, Shield, Eye, EyeOff, Edit, Trash2 } from "lucide-react";
 import { UserEditDialog } from "@/components/UserEditDialog";
 import { StoresManager } from "@/components/StoresManager";
+import { RolePermissionsCard } from "@/components/RolePermissionsCard";
 import { callAdminUsers } from "@/lib/adminUsers";
 import {
   Table,
@@ -133,13 +135,19 @@ export default function UserManagement() {
     }
 
     try {
-      await callAdminUsers({
+      // The sign-in service knows admin / manager / cashier; newer roles are set right after
+      const basicRole = ["admin", "manager", "cashier"].includes(newUserRole) ? newUserRole : "cashier";
+      const created: any = await callAdminUsers({
         action: "create",
         email: newUserEmail,
         password: newUserPassword,
         fullName: newUserName,
-        role: newUserRole,
+        role: basicRole,
       });
+      if (basicRole !== newUserRole && created?.userId) {
+        const { error: roleErr } = await supabase.from('user_roles').update({ role: newUserRole } as any).eq('user_id', created.userId);
+        if (roleErr) toast({ title: "User created as cashier", description: `Couldn't set ${roleLabel(newUserRole)}: ${roleErr.message}. Edit the user to change it.`, variant: "destructive" });
+      }
 
       toast({
         title: "User Created",
@@ -169,12 +177,7 @@ export default function UserManagement() {
   };
 
   const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'admin': return 'bg-red-100 text-red-800';
-      case 'manager': return 'bg-blue-100 text-blue-800';
-      case 'cashier': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+    return roleBadgeClass(role);
   };
 
   const handleEditUser = (profile: Profile) => {
@@ -295,9 +298,7 @@ export default function UserManagement() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cashier">Cashier</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
+                      {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -405,7 +406,7 @@ export default function UserManagement() {
                       </TableCell>
                       <TableCell>
                         <Badge className={getRoleBadgeColor(getUserRole(profile.user_id))}>
-                          {getUserRole(profile.user_id).charAt(0).toUpperCase() + getUserRole(profile.user_id).slice(1)}
+                          {roleLabel(getUserRole(profile.user_id))}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -444,6 +445,8 @@ export default function UserManagement() {
 
         {/* Stores */}
         <StoresManager />
+
+        <RolePermissionsCard />
 
         {/* Role Permissions */}
         <Card>

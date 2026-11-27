@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ROLE_OPTIONS } from "@/lib/roles";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { callAdminUsers } from "@/lib/adminUsers";
@@ -169,9 +170,7 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cashier">Cashier</SelectItem>
-                <SelectItem value="manager">Manager</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
+                {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
