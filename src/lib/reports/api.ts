@@ -66,7 +66,7 @@ export interface ExpenseReport {
   by_method: { method: string; amount: number; count: number }[];
 }
 
-const TEXT_KEYS = /(_id|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of)$/;
+const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of)$/;
 
 /** Postgres numeric arrives as text; turn the number fields into numbers. */
 export function toNumbers<T>(v: T): T {
@@ -139,3 +139,19 @@ export function isoDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
+
+export type BreakdownBy = "category" | "cashier" | "weekday";
+
+export interface BreakdownRow {
+  key: string; label: string; bills: number; units: number; gross_sales: number; discounts: number;
+  returns: number; return_count: number; net_sales: number; gst: number; avg_bill: number | null;
+  cogs: number; cost_missing_value: number; gross_profit: number; gross_margin: number | null;
+}
+
+export interface PaymentRow { key: string; label: string; amount: number; bills: number; split_parts: number }
+
+export const reportBreakdown = (from: string, to: string, locationId: string | null, by: BreakdownBy) =>
+  call<BreakdownRow[]>("report_breakdown", { p_from: from, p_to: to, p_location_id: locationId, p_by: by });
+
+export const reportPayments = (from: string, to: string, locationId: string | null) =>
+  call<PaymentRow[]>("report_breakdown", { p_from: from, p_to: to, p_location_id: locationId, p_by: "payment" });
