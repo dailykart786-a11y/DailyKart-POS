@@ -240,8 +240,8 @@ export function SalesManager() {
         customerId = customer.id;
       }
 
-      await processSale(customerId);
-      setShowCustomerDialog(false);
+      const saved = await processSale(customerId);
+      if (saved) setShowCustomerDialog(false);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -253,52 +253,79 @@ export function SalesManager() {
     }
   };
 
-  const processSale = async (customerId?: string | null) => {
-    if (!user) return;
+  // Old way of saving (separate steps from the browser). Only used if the
+  // database does not have the create_sale function yet.
+  const legacySaveSale = async (customerId: string | null) => {
+    const { subtotal, totalGST, total } = getCartTotals();
+    const invoiceNumber = `INV-${Date.now()}`;
+
+    const { data: sale, error: saleError } = await supabase
+      .from('sales')
+      .insert({
+        customer_id: customerId,
+        cashier_id: user!.id,
+        total_amount: total,
+        tax_amount: totalGST,
+        invoice_number: invoiceNumber,
+        payment_method: paymentMethod
+      })
+      .select()
+      .single();
+
+    if (saleError) throw saleError;
+
+    const saleItems = cart.map(item => ({
+      sale_id: sale.id,
+      product_id: item.product.id,
+      quantity: item.quantity,
+      unit_price: item.product.price,
+      total_price: calculateItemTotal(item),
+      gst_amount: calculateGST(item)
+    }));
+
+    const { error: itemsError } = await supabase
+      .from('sale_items')
+      .insert(saleItems);
+
+    if (itemsError) throw itemsError;
+
+    for (const item of cart) {
+      const newStock = (item.product.stock_quantity || 0) - item.quantity;
+      await supabase
+        .from('products')
+        .update({ stock_quantity: Math.max(0, newStock) })
+        .eq('id', item.product.id);
+    }
+
+    return sale;
+  };
+
+  const processSale = async (customerId?: string | null): Promise<boolean> => {
+    if (!user) return false;
 
     try {
-      const { subtotal, totalGST, total } = getCartTotals();
-      const invoiceNumber = `INV-${Date.now()}`;
+      const customer = customerId || selectedCustomer || null;
 
-      const { data: sale, error: saleError } = await supabase
-        .from('sales')
-        .insert({
-          customer_id: customerId || selectedCustomer || null,
-          cashier_id: user.id,
-          total_amount: total,
-          tax_amount: totalGST,
-          invoice_number: invoiceNumber,
-          payment_method: paymentMethod
-        })
-        .select()
-        .single();
+      // Save bill + items + stock in one database step
+      const { data: savedSale, error: rpcError } = await supabase.rpc('create_sale', {
+        p_items: cart.map(item => ({
+          product_id: item.product.id,
+          quantity: item.quantity,
+          discount: item.discount || 0
+        })),
+        p_customer_id: customer,
+        p_payment_method: paymentMethod
+      });
 
-      if (saleError) throw saleError;
-
-      // Create sale items
-      const saleItems = cart.map(item => ({
-        sale_id: sale.id,
-        product_id: item.product.id,
-        quantity: item.quantity,
-        unit_price: item.product.price,
-        total_price: calculateItemTotal(item),
-        gst_amount: calculateGST(item)
-      }));
-
-      const { error: itemsError } = await supabase
-        .from('sale_items')
-        .insert(saleItems);
-
-      if (itemsError) throw itemsError;
-
-      // Update product stock
-      for (const item of cart) {
-        const newStock = (item.product.stock_quantity || 0) - item.quantity;
-        await supabase
-          .from('products')
-          .update({ stock_quantity: Math.max(0, newStock) })
-          .eq('id', item.product.id);
+      let sale = savedSale;
+      if (rpcError) {
+        // Function not installed yet: keep the shop running the old way
+        const missing = rpcError.code === 'PGRST202' || rpcError.code === '42883';
+        if (!missing) throw rpcError;
+        console.warn('create_sale not found in database, using old save method');
+        sale = await legacySaveSale(customer);
       }
+      const invoiceNumber = sale.invoice_number;
 
       // Note: Loyalty points feature removed as per business requirements
 
@@ -317,13 +344,15 @@ export function SalesManager() {
       setPaymentMethod("cash");
       fetchData(); // Refresh product data
       fetchPaymentSettings(); // Refresh payment settings
-
-    } catch (error) {
+      return true;
+    } catch (error: any) {
       toast({
-        title: "Error",
-        description: "Failed to process sale",
+        title: "Sale not saved",
+        description: error?.message || "Failed to process sale",
         variant: "destructive"
       });
+      fetchData(); // Refresh stock so the cashier sees what is left
+      return false;
     }
   };
 
@@ -596,7 +625,7 @@ export function SalesManager() {
                       tax_amount: totalGST.toLocaleString('en-IN'),
                       total_amount: total.toLocaleString('en-IN'),
                       payment_method: paymentMethod,
-                      invoice_number: `INV-${Date.now()}`,
+                      invoice_number: 'Draft',
                       created_at: new Date().toISOString()
                     }}
                     recipientPhone=""
