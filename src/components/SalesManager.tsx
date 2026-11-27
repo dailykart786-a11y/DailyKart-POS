@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { CustomerEntryDialog } from "@/components/CustomerEntryDialog";
 import { WhatsAppIntegration } from "@/components/WhatsAppIntegration";
 import { AddCustomerDialog } from "@/components/AddCustomerDialog";
-import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator } from "lucide-react";
+import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator, ScanLine } from "lucide-react";
+import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
 import { QRCodeSVG } from "qrcode.react";
 import { useStore, inStore } from "@/hooks/useStore";
 import {
@@ -38,6 +39,7 @@ interface Product {
   category: string | null;
   image_url: string | null;
   hsn_code?: string | null;
+  barcode?: string | null;
 }
 
 interface Customer {
@@ -94,6 +96,8 @@ export function SalesManager() {
   const [paymentSettings, setPaymentSettings] = useState<{ upi_vpa: string; payee_name?: string } | null>(null);
   const [storeDetails, setStoreDetails] = useState<StoreDetails>(DEFAULT_STORE);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -214,17 +218,40 @@ export function SalesManager() {
   };
 
   const addToCart = (product: Product) => {
-    const existingItem = cart.find(item => item.product.id === product.id);
-    
-    if (existingItem) {
-      setCart(cart.map(item =>
-        item.product.id === product.id
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      ));
-    } else {
-      setCart([...cart, { product, quantity: 1, discount: 0 }]);
+    setCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      const nextQty = (existing?.quantity || 0) + 1;
+      const stock = product.stock_quantity ?? 0;
+      if (nextQty > stock) {
+        toast({
+          title: "Not enough stock",
+          description: `${product.name}: only ${stock} left`,
+          variant: "destructive"
+        });
+        return prev;
+      }
+      return existing
+        ? prev.map(item => item.product.id === product.id ? { ...item, quantity: nextQty } : item)
+        : [...prev, { product, quantity: 1, discount: 0 }];
+    });
+  };
+
+  // Find a product by exact barcode or SKU (what a scanner types)
+  const findByCode = (code: string) => {
+    const c = code.trim().toLowerCase();
+    if (!c) return undefined;
+    return products.find(p => (p.barcode || '').trim().toLowerCase() === c)
+      || products.find(p => p.sku.trim().toLowerCase() === c);
+  };
+
+  const addByCode = (code: string) => {
+    const product = findByCode(code);
+    if (product) {
+      addToCart(product);
+      return true;
     }
+    toast({ title: "Not found", description: `No product with barcode ${code}`, variant: "destructive" });
+    return false;
   };
 
   const updateCartQuantity = (productId: string, quantity: number) => {
@@ -451,7 +478,8 @@ export function SalesManager() {
   const filteredProducts = products.filter((product) => {
     const matchesSearch =
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+      product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (product.barcode || '').toLowerCase().includes(searchTerm.toLowerCase());
     const productCategory = (product.category?.trim() || "Uncategorized");
     const matchesCategory = categoryFilter === "all" || productCategory === categoryFilter;
     return matchesSearch && matchesCategory;
@@ -475,13 +503,41 @@ export function SalesManager() {
           <h2 className="text-2xl font-bold mb-4">Product Selection</h2>
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search products by name or SKU..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+            <div className="flex gap-2">
+              <Input
+                ref={searchRef}
+                autoFocus
+                placeholder="Scan barcode or search by name / SKU"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  // USB scanners type the code and press Enter
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const term = searchTerm.trim();
+                    if (!term) return;
+                    if (findByCode(term)) {
+                      addByCode(term);
+                      setSearchTerm("");
+                    } else if (filteredProducts.length === 1) {
+                      addToCart(filteredProducts[0]);
+                      setSearchTerm("");
+                    }
+                  }
+                }}
+                className="pl-10"
+              />
+              <Button type="button" variant="outline" onClick={() => setScannerOpen(true)} className="gap-2 shrink-0" aria-label="Scan with camera">
+                <ScanLine className="h-4 w-4" />
+                <span className="hidden sm:inline">Camera</span>
+              </Button>
+            </div>
           </div>
+          <BarcodeScannerDialog
+            open={scannerOpen}
+            onOpenChange={(o) => { setScannerOpen(o); if (!o) setTimeout(() => searchRef.current?.focus(), 50); }}
+            onDetected={addByCode}
+          />
           <div className="mt-3">
             <Label>Category</Label>
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
