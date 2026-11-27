@@ -19,6 +19,7 @@ import { OfflineStatus } from "@/components/OfflineStatus";
 import { AlertsBell } from "@/components/AlertsBell";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { LoginSecurity } from "@/components/LoginSecurity";
+import { InstallAppButton } from "@/components/InstallAppButton";
 import { readQueue } from "@/lib/offline";
 
 interface LayoutProps {
@@ -51,16 +52,16 @@ export function Layout({ children }: LayoutProps) {
       <div className="min-h-screen flex w-full">
         <AppSidebar />
         
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <header className="h-16 border-b bg-card flex items-center justify-between px-4 md:px-6">
+          <header className="h-16 border-b bg-card flex items-center justify-between px-4 md:px-6 box-content pt-[env(safe-area-inset-top)]">
             <div className="flex items-center gap-2 md:gap-4">
               <SidebarTrigger />
               <div className="flex items-center gap-2 md:gap-3">
                 <img src="/lovable-uploads/8339ecb2-3c19-468f-b433-6b7bcb690cf2.png" alt="DailyKart Logo" className="h-6 w-6 md:h-8 md:w-8" />
-                <div className="flex items-center gap-1 md:gap-2">
+                <div className="hidden min-[420px]:flex items-center gap-1 md:gap-2">
                   <h1 className="text-lg md:text-xl font-bold text-primary">DailyKart POS</h1>
-                  <span className="text-xs bg-accent text-accent-foreground px-1.5 py-0.5 md:px-2 md:py-1 rounded">PRO</span>
+                  <span className="hidden sm:inline text-xs bg-accent text-accent-foreground px-1.5 py-0.5 md:px-2 md:py-1 rounded">PRO</span>
                 </div>
               </div>
             </div>
@@ -92,6 +93,7 @@ export function Layout({ children }: LayoutProps) {
                 </p>
               </div>
               
+              <InstallAppButton />
               <LanguageToggle />
               <AlertsBell />
               <DropdownMenu>
@@ -122,7 +124,7 @@ export function Layout({ children }: LayoutProps) {
           <OfflineStatus />
 
           {/* Main Content */}
-          <main className="flex-1 p-4 md:p-6 bg-secondary/30 overflow-auto">
+          <main className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 bg-secondary/30 overflow-auto">
             {children}
           </main>
         </div>

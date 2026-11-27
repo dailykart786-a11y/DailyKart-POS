@@ -10,7 +10,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Edit, Trash2, Package, Barcode, Wand2, FileUp, Download } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Barcode, Wand2, FileUp, Download, ScanLine } from "lucide-react";
+import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
 import { ProductImportDialog } from "@/components/ProductImportDialog";
 import { downloadCsv } from "@/lib/gstReport";
 import { generateShopBarcode, printLabels } from "@/lib/labels";
@@ -92,6 +93,8 @@ export function ProductsManager() {
   const [calculatedUnits, setCalculatedUnits] = useState<UnitVariant[]>([]);
 
   const [showImport, setShowImport] = useState(false);
+  // Camera: "field" fills the barcode box in the form, "find" opens the product with that barcode
+  const [scanFor, setScanFor] = useState<null | "field" | "find">(null);
 
   useEffect(() => {
     fetchProducts();
@@ -357,14 +360,43 @@ export function ProductsManager() {
     return <Badge variant="secondary">In Stock</Badge>;
   };
 
+  const onScan = (code: string) => {
+    const c = code.trim();
+    if (!c) return false;
+    if (scanFor === "field") {
+      setBarcode(c);
+      return `Barcode ${c} filled in`;
+    }
+    const found = products.find(p => (p.barcode || "").trim() === c) || products.find(p => p.sku.trim().toLowerCase() === c.toLowerCase());
+    if (found) {
+      handleEdit(found);
+      return `Opened ${found.name}`;
+    }
+    resetForm();
+    setEditingProduct(null);
+    setBarcode(c);
+    setShowForm(true);
+    return `New product with barcode ${c}`;
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <BarcodeScannerDialog
+        open={scanFor !== null}
+        onOpenChange={(o) => { if (!o) setScanFor(null); }}
+        onDetected={onScan}
+        single
+        title={scanFor === "field" ? "Scan the product's barcode" : "Scan a product"}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Product Management</h2>
           <p className="text-muted-foreground">Manage your inventory and product catalog</p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
+          <Button variant="outline" onClick={() => setScanFor("find")} className="gap-2" title="Scan a barcode to open that product, or add it if it's new">
+            <ScanLine className="h-4 w-4" /> Scan
+          </Button>
           <Button variant="outline" onClick={() => setShowImport(true)} className="gap-2">
             <FileUp className="h-4 w-4" /> Import Excel
           </Button>
@@ -600,6 +632,9 @@ export function ProductsManager() {
                     onChange={(e) => setBarcode(e.target.value)}
                     placeholder="Scan or type the barcode"
                   />
+                  <Button type="button" variant="outline" size="icon" onClick={() => setScanFor("field")} className="shrink-0" aria-label="Scan barcode with camera" title="Scan with camera">
+                    <ScanLine className="h-4 w-4" />
+                  </Button>
                   <Button type="button" variant="outline" onClick={() => setBarcode(generateShopBarcode())} className="gap-1 shrink-0" title="Make a barcode for items that don't have one">
                     <Wand2 className="h-4 w-4" /> New
                   </Button>
