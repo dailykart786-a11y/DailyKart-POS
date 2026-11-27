@@ -51,6 +51,9 @@ create policy "managers update own location" on public.locations for update to a
   with check (get_user_role(auth.uid()) = 'manager' and id = get_user_location(auth.uid()));
 
 -- create_sale now also saves GST rate, HSN and the interstate flag
+drop function if exists public.create_sale(jsonb, uuid, text);
+drop function if exists public.create_sale(jsonb, uuid, text, uuid);
+
 create or replace function public.create_sale(
   p_items jsonb,
   p_customer_id uuid default null,
