@@ -12,7 +12,9 @@ import {
   Truck,
   BarChart3,
   BookOpen,
-  Undo2
+  Undo2,
+  Landmark,
+  FileSpreadsheet
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -34,11 +36,13 @@ const navigationItems = [
   { title: "Sales", url: "/sales", icon: ShoppingCart, permission: "sales" },
   { title: "Products", url: "/products", icon: Package, permission: "products" },
   { title: "Purchases", url: "/purchases", icon: Truck, permission: "purchases" },
+  { title: "Day closing", url: "/register", icon: Landmark, permission: "register" },
   { title: "Khata", url: "/khata", icon: BookOpen, permission: "khata" },
   { title: "Returns", url: "/returns", icon: Undo2, permission: "returns" },
   { title: "Customers", url: "/customers", icon: Users, permission: "customers" },
   { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "expenses" },
   { title: "Reports", url: "/reports", icon: BarChart3, permission: "reports" },
+  { title: "GST reports", url: "/gst", icon: FileSpreadsheet, permission: "reports" },
   { title: "Users", url: "/users", icon: UserCheck, permission: "users" },
 ];
 

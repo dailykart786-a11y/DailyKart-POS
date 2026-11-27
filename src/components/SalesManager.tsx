@@ -14,6 +14,17 @@ import { WhatsAppIntegration } from "@/components/WhatsAppIntegration";
 import { AddCustomerDialog } from "@/components/AddCustomerDialog";
 import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator, ScanLine } from "lucide-react";
 import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
+import { PauseCircle, PlayCircle } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const HELD_KEY = "dailykart-held-bills";
+interface HeldBill { id: string; at: string; items: { productId: string; quantity: number; discount: number }[]; customerId: string; label: string; }
+const readHeld = (): HeldBill[] => { try { return JSON.parse(localStorage.getItem(HELD_KEY) || "[]"); } catch { return []; } };
+const writeHeld = (bills: HeldBill[]) => { try { localStorage.setItem(HELD_KEY, JSON.stringify(bills)); } catch { /* storage off */ } };
+const SPLIT_KEYS = ["cash", "upi", "card", "credit"] as const;
+type SplitKey = typeof SPLIT_KEYS[number];
 import { QRCodeSVG } from "qrcode.react";
 import { useStore, inStore } from "@/hooks/useStore";
 import {
@@ -97,6 +108,8 @@ export function SalesManager() {
   const [storeDetails, setStoreDetails] = useState<StoreDetails>(DEFAULT_STORE);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [split, setSplit] = useState<Record<SplitKey, string>>({ cash: "", upi: "", card: "", credit: "" });
+  const [heldBills, setHeldBills] = useState<HeldBill[]>(() => readHeld());
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -164,7 +177,10 @@ export function SalesManager() {
       store,
       invoiceNumber: sale.invoice_number,
       createdAt: sale.created_at,
-      paymentMethod: sale.payment_method,
+      paymentMethod: sale.payment_split
+        ? Object.entries(sale.payment_split as Record<string, number>)
+            .map(([k, v]) => `${k === 'credit' ? 'udhaar' : k} ${Number(v).toFixed(2)}`).join(' + ')
+        : sale.payment_method,
       customerName,
       customerGstin,
       interstate: !!sale.is_interstate,
@@ -312,6 +328,54 @@ export function SalesManager() {
     };
   };
 
+  const splitSum = SPLIT_KEYS.reduce((sum, k) => sum + (parseFloat(split[k]) || 0), 0);
+  const splitCredit = parseFloat(split.credit) || 0;
+  const needsCustomer = paymentMethod === 'credit' || (paymentMethod === 'split' && splitCredit > 0);
+
+  const holdBill = () => {
+    if (!cart.length) return;
+    const customerName = customers.find(c => c.id === selectedCustomer)?.name;
+    const bill: HeldBill = {
+      id: String(Date.now()),
+      at: new Date().toISOString(),
+      items: cart.map(i => ({ productId: i.product.id, quantity: i.quantity, discount: i.discount })),
+      customerId: selectedCustomer,
+      label: `${customerName || 'Walk-in'} · ${cart.length} item${cart.length > 1 ? 's' : ''} · ₹${getCartTotals().total.toLocaleString('en-IN')}`,
+    };
+    const next = [bill, ...readHeld()].slice(0, 20);
+    writeHeld(next);
+    setHeldBills(next);
+    setCart([]);
+    setSelectedCustomer("");
+    toast({ title: "Bill on hold", description: "Serve the next customer. Resume it from Held bills." });
+  };
+
+  const resumeBill = (bill: HeldBill) => {
+    if (cart.length) {
+      toast({ title: "Finish or hold the current bill first", variant: "destructive" });
+      return;
+    }
+    const items: CartItem[] = [];
+    let missing = 0;
+    for (const h of bill.items) {
+      const product = products.find(p => p.id === h.productId);
+      if (product) items.push({ product, quantity: h.quantity, discount: h.discount });
+      else missing++;
+    }
+    setCart(items);
+    setSelectedCustomer(bill.customerId || "");
+    const next = readHeld().filter(b => b.id !== bill.id);
+    writeHeld(next);
+    setHeldBills(next);
+    if (missing) toast({ title: "Some items were skipped", description: `${missing} item(s) are no longer for sale` });
+  };
+
+  const discardHeld = (bill: HeldBill) => {
+    const next = readHeld().filter(b => b.id !== bill.id);
+    writeHeld(next);
+    setHeldBills(next);
+  };
+
   const handleCompleteSale = () => {
     if (cart.length === 0) {
       toast({
@@ -321,7 +385,14 @@ export function SalesManager() {
       });
       return;
     }
-    if (paymentMethod === 'credit' && selectedCustomer) {
+    if (paymentMethod === 'split') {
+      const { total } = getCartTotals();
+      if (Math.abs(splitSum - total) > 0.05) {
+        toast({ title: "Payments don't match the bill", description: `Entered ₹${splitSum.toFixed(2)}, bill is ₹${total.toFixed(2)}`, variant: "destructive" });
+        return;
+      }
+    }
+    if (needsCustomer && selectedCustomer) {
       // Udhaar for a known customer: no need to ask for details again
       processSale(selectedCustomer);
       return;
@@ -431,7 +502,22 @@ export function SalesManager() {
       };
       if (billingStoreFilter) saleArgs.p_location_id = billingStoreFilter;
 
-      let { data: savedSale, error: rpcError } = await supabase.rpc('create_sale', saleArgs as any);
+      let splitSale: any = null;
+      if (paymentMethod === 'split') {
+        const payments: Record<string, number> = {};
+        for (const k of SPLIT_KEYS) { const v = parseFloat(split[k]) || 0; if (v > 0) payments[k] = v; }
+        const { p_payment_method, ...rest } = saleArgs;
+        const { data, error } = await supabase.rpc('create_sale_split' as any, { ...rest, p_payments: payments } as any);
+        if (error) {
+          if (error.code === 'PGRST202') throw new Error('Split payment needs the latest database update. Use one payment method for now.');
+          throw error;
+        }
+        splitSale = data;
+      }
+
+      let { data: savedSale, error: rpcError } = splitSale
+        ? { data: splitSale, error: null as any }
+        : await supabase.rpc('create_sale', saleArgs as any);
       if (rpcError && rpcError.code === 'PGRST202' && saleArgs.p_location_id) {
         // Database has the older create_sale without the store option
         const { p_location_id, ...older } = saleArgs;
@@ -466,6 +552,7 @@ export function SalesManager() {
       setCart([]);
       setSelectedCustomer("");
       setPaymentMethod("cash");
+      setSplit({ cash: "", upi: "", card: "", credit: "" });
       fetchData(); // Refresh product data
       fetchPaymentSettings(); // Refresh payment settings
       return true;
@@ -496,7 +583,7 @@ export function SalesManager() {
   // UPI payment link - use settings from database or fallback
   const vpa = paymentSettings?.upi_vpa || "6302242108@kotak811";
   const payeeName = paymentSettings?.payee_name || "DailyKart";
-  const upiAmount = total.toFixed(2);
+  const upiAmount = (paymentMethod === 'split' ? (parseFloat(split.upi) || 0) : total).toFixed(2);
   const upiNote = lastSale?.invoice_number ? `Invoice ${lastSale.invoice_number}` : "POS Payment";
   const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(upiAmount)}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
 
@@ -649,10 +736,43 @@ export function SalesManager() {
         {/* Cart Items */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />
-              Cart Items
-            </CardTitle>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                Cart Items
+              </CardTitle>
+              <div className="flex gap-2">
+                {cart.length > 0 && (
+                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={holdBill}>
+                    <PauseCircle className="h-4 w-4" /> Hold
+                  </Button>
+                )}
+                {heldBills.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" size="sm" variant="secondary" className="gap-1">
+                        <PlayCircle className="h-4 w-4" /> Held ({heldBills.length})
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-72">
+                      <DropdownMenuLabel>Bills on hold (this device)</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {heldBills.map(b => (
+                        <div key={b.id} className="flex items-center gap-1 px-1">
+                          <DropdownMenuItem className="flex-1 flex-col items-start" onSelect={() => resumeBill(b)}>
+                            <span className="text-sm">{b.label}</span>
+                            <span className="text-xs text-muted-foreground">{new Date(b.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </DropdownMenuItem>
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="Discard held bill" onClick={() => discardHeld(b)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {cart.length === 0 ? (
@@ -743,18 +863,48 @@ export function SalesManager() {
                     <SelectItem value="card">Card</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
                     <SelectItem value="credit">Credit (Udhaar)</SelectItem>
+                    <SelectItem value="split">Split (part cash, part UPI...)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
+              {paymentMethod === 'split' && (
+                <div className="space-y-2 rounded-md border p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {SPLIT_KEYS.map(k => (
+                      <div key={k} className="space-y-1">
+                        <Label htmlFor={`split-${k}`} className="text-xs">{k === 'credit' ? 'Udhaar' : k.toUpperCase()}</Label>
+                        <Input id={`split-${k}`} type="number" inputMode="decimal" min="0" step="0.01" placeholder="0"
+                          value={split[k]} onChange={(e) => setSplit(sp => ({ ...sp, [k]: e.target.value }))} />
+                      </div>
+                    ))}
+                  </div>
+                  {(() => {
+                    const left = Math.round((total - splitSum) * 100) / 100;
+                    return (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className={Math.abs(left) <= 0.05 ? "text-green-600" : "text-destructive"}>
+                          {Math.abs(left) <= 0.05 ? "Matches the bill" : left > 0 ? `₹${left.toFixed(2)} still to enter` : `₹${(-left).toFixed(2)} too much`}
+                        </span>
+                        {left > 0.05 && (
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setSplit(sp => ({ ...sp, cash: String(Math.round(((parseFloat(sp.cash) || 0) + left) * 100) / 100) }))}>
+                            Rest in cash
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               <div className="space-y-2">
-                {paymentMethod === 'upi' && (
+                {(paymentMethod === 'upi' || (paymentMethod === 'split' && (parseFloat(split.upi) || 0) > 0)) && (
                   <Button
                     variant="outline"
                     className="w-full"
                     onClick={() => setUpiDialogOpen(true)}
                   >
-                    Show UPI QR to Pay (₹{total.toLocaleString('en-IN')})
+                    Show UPI QR to Pay (₹{(paymentMethod === 'split' ? parseFloat(split.upi) || 0 : total).toLocaleString('en-IN')})
                   </Button>
                 )}
                 <Button 
@@ -840,7 +990,7 @@ export function SalesManager() {
           onOpenChange={setShowCustomerDialog}
           onSubmit={handleCustomerSubmit}
           onSkip={async () => {
-            if (paymentMethod === 'credit') {
+            if (needsCustomer) {
               toast({ title: "Customer needed", description: "Udhaar (credit) needs the customer's name so it shows in Khata", variant: "destructive" });
               return;
             }
@@ -863,7 +1013,7 @@ export function SalesManager() {
               <div className="text-center">
                 <div className="text-sm text-muted-foreground">Pay to: {payeeName}</div>
                 <div className="text-sm text-muted-foreground">VPA: {vpa}</div>
-                <div className="font-medium">Amount: ₹{total.toLocaleString('en-IN')}</div>
+                <div className="font-medium">Amount: ₹{Number(upiAmount).toLocaleString('en-IN')}</div>
               </div>
             </div>
           </DialogContent>
