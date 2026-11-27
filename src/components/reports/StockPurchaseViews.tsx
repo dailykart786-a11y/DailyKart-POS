@@ -16,25 +16,12 @@ import { rangeLabel } from "@/lib/reports/dates";
 import { ReportCtx, csvMeta, csvName, useReportData } from "./context";
 import { CHART_COLORS, Kpi, Loaded, NoData, Section, inr, num } from "./shared";
 import { Pager, useDebounced } from "./paging";
+import { NeedsUpdate as Needs, useMissing } from "./missing";
+
+const NeedsUpdate = () => <Needs file="phase4-reports-stock-purchases.sql" />;
 
 const R = "text-right";
 const plural = (n: number, one: string, many = one + "s") => `${num(n)} ${n === 1 ? one : many}`;
-
-/** Shown instead of a report when its database function hasn't been added yet. */
-function NeedsUpdate() {
-  return (
-    <NoData
-      title="One-time database update needed"
-      description="This report needs the Phase 4 reports update (phase4-reports-stock-purchases.sql, also at the end of dailykart-updates.sql). Run it once in the Supabase SQL Editor and reload."
-    />
-  );
-}
-
-/** Keeps a missing function to this report instead of switching the whole page to the old one. */
-function useMissing(): [boolean, () => void] {
-  const [missing, setMissing] = useState(false);
-  return [missing, () => setMissing(true)];
-}
 
 const day = (s: string | null | undefined) =>
   s ? new Date(s.length === 10 ? s + "T00:00:00" : s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit", timeZone: "Asia/Kolkata" }) : "—";

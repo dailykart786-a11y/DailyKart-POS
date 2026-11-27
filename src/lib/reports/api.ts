@@ -66,7 +66,7 @@ export interface ExpenseReport {
   by_method: { method: string; amount: number; count: number }[];
 }
 
-const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by)$/;
+const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by|^ref|^kind|^bucket|^cashier|^party|^note|^phone)$/;
 
 /** Postgres numeric arrives as text; turn the number fields into numbers. */
 export function toNumbers<T>(v: T): T {
@@ -249,3 +249,75 @@ export const reportPurchases = (from: string, to: string, locationId: string | n
     p_from: from, p_to: to, p_location_id: locationId, p_by: by, p_search: opts.search ?? null,
     p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
   });
+
+// ---------------------------------------------------------------- Phase 5: khata, payments and registers
+// (supabase/migrations/20261127450000_reports_khata_payments.sql)
+export type AgeingFilter = "all" | "d0_7" | "d8_15" | "d16_30" | "d31_60" | "d60_plus" | "overdue" | "over_limit" | "advance";
+export interface AgeingRow {
+  customer_id: string; name: string; phone: string | null; customer_group: string | null; balance: number;
+  d0_7: number; d8_15: number; d16_30: number; d31_60: number; d60_plus: number; overdue: number;
+  oldest_age: number | null; oldest_due_at: string | null; bucket: string | null;
+  credit_limit: number | null; credit_days: number | null; last_payment_at: string | null; days_since_payment: number | null;
+}
+export interface AgeingReport {
+  as_of: string; total: number;
+  totals: {
+    customers_owing: number; outstanding: number; advance: number; customers_advance: number;
+    d0_7: number; d8_15: number; d16_30: number; d31_60: number; d60_plus: number;
+    overdue: number; customers_overdue: number; over_limit: number;
+  };
+  rows: AgeingRow[];
+}
+
+export interface StatementRow { at: string; kind: "opening" | "udhaar" | "payment" | "refund"; ref: string | null; ref_id: string | null; method: string | null; amount: number; note: string | null; running: number }
+export interface StatementReport {
+  customer: { customer_id: string; name: string; phone: string | null; credit_limit: number | null; credit_days: number | null };
+  from: string; to: string; opening: number; udhaar: number; received: number; closing: number; balance_now: number; total: number;
+  rows: StatementRow[];
+}
+
+export type MoneyKind = "bill" | "khata" | "refund" | "supplier" | "expense";
+export interface MoneyRow { at: string; kind: MoneyKind; method: string; amount: number; ref: string | null; ref_id: string; party: string | null; by_name: string | null }
+export interface PaymentRegister {
+  total: number; udhaar_given: number; khata_refunds: number;
+  by_method: { key: string; money_in: number; money_out: number; net: number; entries: number }[];
+  by_kind: { key: MoneyKind; amount: number; entries: number }[];
+  by_day: { bucket: string; money_in: number; money_out: number; cash_net: number }[];
+  rows: MoneyRow[];
+}
+
+export interface RegisterRow {
+  id: string; user_id: string; cashier: string | null; opened_at: string; closed_at: string | null; opening_cash: number;
+  expected_cash: number | null; counted_cash: number | null; difference: number | null;
+  upi_expected: number | null; upi_counted: number | null; upi_diff: number | null;
+  card_expected: number | null; card_counted: number | null; card_diff: number | null;
+  note: string | null; bills: number | null; total_sales: number | null; cash_sales: number | null;
+}
+export interface RegisterReport {
+  total: number;
+  totals: {
+    sessions: number; closed: number; open: number; short: number; over: number; net: number;
+    short_count: number; over_count: number; exact_count: number; upi_diff: number; card_diff: number;
+    expected_cash: number; counted_cash: number;
+  };
+  by_cashier: { key: string; label: string; sessions: number; short: number; over: number; net: number; short_count: number }[];
+  rows: RegisterRow[];
+}
+
+export const reportKhataAgeing = (locationId: string | null, opts: Page & { bucket?: AgeingFilter; sort?: string; dir?: "asc" | "desc" } = {}) =>
+  call<AgeingReport>("report_khata_ageing", {
+    p_location_id: locationId, p_search: opts.search ?? null, p_bucket: opts.bucket ?? "all",
+    p_sort: opts.sort ?? "due", p_dir: opts.dir ?? "desc", p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });
+
+export const reportKhataStatement = (customerId: string, from: string, to: string) =>
+  call<StatementReport>("report_khata_statement", { p_customer_id: customerId, p_from: from, p_to: to, p_limit: 500 });
+
+export const reportPaymentRegister = (from: string, to: string, locationId: string | null, opts: Page & { method?: string | null; kind?: string | null } = {}) =>
+  call<PaymentRegister>("report_payment_register", {
+    p_from: from, p_to: to, p_location_id: locationId, p_method: opts.method ?? null, p_kind: opts.kind ?? null,
+    p_search: opts.search ?? null, p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });
+
+export const reportRegisters = (from: string, to: string, locationId: string | null, opts: Page = {}) =>
+  call<RegisterReport>("report_registers", { p_from: from, p_to: to, p_location_id: locationId, p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0 });
