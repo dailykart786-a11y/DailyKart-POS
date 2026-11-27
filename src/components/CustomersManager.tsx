@@ -12,6 +12,7 @@ import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Edit, Users, Mail, Phone, Star, Trash2 } from "lucide-react";
+import { LoyaltyHistoryDialog } from "@/components/LoyaltyHistoryDialog";
 import {
   Table,
   TableBody,
@@ -37,6 +38,7 @@ export function CustomersManager() {
   const { user } = useAuth();
   const { filterStoreId, newRecordFields } = useStore();
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [pointsFor, setPointsFor] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -391,6 +393,15 @@ export function CustomersManager() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label={`Points history of ${customer.name}`}
+                          onClick={() => setPointsFor(customer)}
+                        >
+                          <Star className="h-3 w-3" />
+                        </Button>
                         <Button 
                           variant="outline" 
                           size="icon" 
@@ -416,6 +427,7 @@ export function CustomersManager() {
           )}
         </CardContent>
       </Card>
+      {pointsFor && <LoyaltyHistoryDialog customerId={pointsFor.id} name={pointsFor.name} onClose={() => setPointsFor(null)} />}
     </div>
   );
 }

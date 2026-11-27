@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Store } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { OfflineStatus } from "@/components/OfflineStatus";
+import { AlertsBell } from "@/components/AlertsBell";
 import { readQueue } from "@/lib/offline";
 
 interface LayoutProps {
@@ -89,6 +90,7 @@ export function Layout({ children }: LayoutProps) {
                 </p>
               </div>
               
+              <AlertsBell />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon">
