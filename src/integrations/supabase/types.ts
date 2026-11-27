@@ -476,6 +476,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_sale: {
+        Args: {
+          p_items: Json
+          p_customer_id?: string | null
+          p_payment_method?: string
+        }
+        Returns: Database["public"]["Tables"]["sales"]["Row"]
+      }
       create_user_with_role: {
         Args: {
           p_email: string
