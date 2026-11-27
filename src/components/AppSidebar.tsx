@@ -25,10 +25,10 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { pathname } = useLocation();
   const collapsed = state === "collapsed" && !isMobile;
-  const { hasPermission, loading } = useUserRole();
+  const { hasPermission, loading, role } = useUserRole();
   const { favourites, recent, closedGroups, toggleFavourite, toggleGroup, addRecent } = useNavPrefs();
 
-  const allowed = (i: NavItem) => !i.permission || hasPermission(i.permission);
+  const allowed = (i: NavItem) => (!i.permission || hasPermission(i.permission)) && (!i.roles || i.roles.includes(role));
   const current = findNavItem(pathname);
 
   // Remember pages the person actually opened (only ones they can see)

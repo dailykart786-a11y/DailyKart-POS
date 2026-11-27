@@ -177,8 +177,9 @@ export function RealtimeDashboard() {
         totalProducts: productsRes.count || 0,
         totalCustomers: customersRes.count || 0,
         salesGrowth,
-        transactionGrowth: Math.random() * 10 - 5, // Mock data
-        customerGrowth: Math.random() * 5
+        // No made-up figures: these are only shown when worked out from real data
+        transactionGrowth: 0,
+        customerGrowth: 0
       });
 
       // Fetch last 7 days sales data
@@ -340,8 +341,7 @@ export function RealtimeDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(stats.todaySales)}</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {stats.salesGrowth >= 0 ? '+' : ''}{stats.salesGrowth.toFixed(1)}% from yesterday
+              {stats.salesGrowth !== 0 ? <><TrendingUp className="h-3 w-3" />{stats.salesGrowth > 0 ? '+' : ''}{stats.salesGrowth.toFixed(1)}% from yesterday</> : 'Sales so far today'}
             </p>
           </CardContent>
         </Card>
@@ -353,10 +353,7 @@ export function RealtimeDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalTransactions}</div>
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {stats.transactionGrowth >= 0 ? '+' : ''}{stats.transactionGrowth.toFixed(1)}% from yesterday
-            </p>
+            <p className="text-xs text-muted-foreground">Bills made today</p>
           </CardContent>
         </Card>
 
@@ -378,10 +375,7 @@ export function RealtimeDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalCustomers}</div>
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {stats.customerGrowth >= 0 ? '+' : ''}{stats.customerGrowth.toFixed(1)}% this month
-            </p>
+            <p className="text-xs text-muted-foreground">Saved customers</p>
           </CardContent>
         </Card>
       </div>
