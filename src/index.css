@@ -105,6 +105,10 @@ All colors MUST be HSL.
     @apply border-border;
   }
 
+  html {
+    /* Colour behind the phone status bar and when the page bounces */
+    @apply bg-card;
+  }
   body {
     @apply bg-background text-foreground;
   }
