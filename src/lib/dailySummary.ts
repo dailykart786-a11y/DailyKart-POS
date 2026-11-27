@@ -104,7 +104,7 @@ export async function fetchDailySummary(date: string, storeId: string | null): P
 }
 
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-const METHOD: Record<string, string> = { cash: "Cash", upi: "UPI", card: "Card", credit: "Udhaar" };
+const METHOD: Record<string, string> = { cash: "Cash", upi: "UPI", card: "Card", credit: "Udhaar", bank: "Bank transfer" };
 
 export function summaryText(s: DailySummary, storeName: string): string {
   const day = new Date(`${s.date}T12:00:00+05:30`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });

@@ -31,7 +31,9 @@ import {
   QueuedSale, addToQueue, cacheGet, cacheSet, isNetworkError, isOffline, newClientRef, offlineBillNumber,
 } from "@/lib/offline";
 import { Batch, estimateLeft, todayIso } from "@/lib/batches";
-import { Offer, bestOffer, maxPointsForBill, pointsPercent, stackDiscount } from "@/lib/offers";
+import { Offer, bestOffer, billDiscountPercent, maxPointsForBill, pointsPercent, stackDiscount } from "@/lib/offers";
+import { useUserRole } from "@/hooks/useUserRole";
+import { getReceiptWidth, setReceiptWidth, type ReceiptWidth } from "@/lib/invoice";
 import {
   buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
   DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
@@ -124,6 +126,40 @@ export function SalesManager() {
   const [loyalty, setLoyalty] = useState<LoyaltyInfo | null>(null);
   const [usePoints, setUsePoints] = useState(0);
   const [pointsInput, setPointsInput] = useState("");
+  const { role } = useUserRole();
+  // Discount on the whole bill (typed by the cashier) and coupon
+  const [billDiscKind, setBillDiscKind] = useState<"percent" | "flat">("percent");
+  const [billDiscValue, setBillDiscValue] = useState("");
+  const [coupon, setCoupon] = useState<{ id: string; code: string; kind: "percent" | "flat"; value: number; min_bill: number | null } | null>(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [maxDiscountPct, setMaxDiscountPct] = useState<number | null>(null);
+  const [approval, setApproval] = useState<{ id: string; pct: number } | null>(null);
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const [approvalPin, setApprovalPin] = useState("");
+  const [approving, setApproving] = useState(false);
+  const [topSellerIds, setTopSellerIds] = useState<string[]>([]);
+  const [receiptWidth, setReceiptWidthState] = useState<ReceiptWidth>(() => getReceiptWidth());
+
+  // Most a cashier may discount without a manager (optional setting)
+  useEffect(() => {
+    let cancelled = false;
+    const storeId = billingStoreFilter;
+    (async () => {
+      const id = storeId || (user ? await getMyLocationId(user.id).catch(() => null) : null);
+      if (!id || cancelled) return;
+      const { data, error } = await supabase.from('locations').select('max_discount_pct' as any).eq('id', id).maybeSingle();
+      if (!cancelled && !error) setMaxDiscountPct((data as any)?.max_discount_pct == null ? null : Number((data as any).max_discount_pct));
+    })().catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [billingStoreFilter, user]);
+
+  // Best sellers of the last 30 days for one-tap adding
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc('top_sellers' as any, { p_location_id: billingStoreFilter, p_days: 30, p_limit: 8 } as any)
+      .then(({ data, error }: any) => { if (!cancelled && !error) setTopSellerIds(((data || []) as any[]).map(r => r.product_id)); }, () => undefined);
+    return () => { cancelled = true; };
+  }, [billingStoreFilter]);
 
   // Offers for this store (optional: needs the database update)
   useEffect(() => {
@@ -353,9 +389,19 @@ export function SalesManager() {
   // Puts the best live offer on a line, unless the cashier typed their own discount
   const withOffer = (item: CartItem): CartItem => {
     if (item.discount > 0 && !item.offerName) return item;
-    const o = offers.length ? bestOffer(item.product, item.quantity, offers, todayIso()) : null;
-    return o ? { ...item, discount: Number(o.percent), offerName: o.name } : { ...item, discount: item.offerName ? 0 : item.discount, offerName: undefined };
+    const o = offers.length ? bestOffer(item.product, item.quantity, offers, todayIso(), offerBillValue.current) : null;
+    return o ? { ...item, discount: o.appliedPercent, offerName: o.name } : { ...item, discount: item.offerName ? 0 : item.discount, offerName: undefined };
   };
+
+  // Bill value for "minimum bill" offers, and a re-check of every line when the cart changes
+  const offerBillValue = useRef(0);
+  useEffect(() => {
+    offerBillValue.current = cart.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+    if (!offers.length) return;
+    const next = cart.map(withOffer);
+    if (next.some((n, i) => n.discount !== cart[i].discount || n.offerName !== cart[i].offerName)) setCart(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, offers]);
 
   const updateCartQuantity = (productId: string, quantity: number) => {
     if (quantity <= 0) {
@@ -387,10 +433,21 @@ export function SalesManager() {
     const after = item.product.price * item.quantity * (100 - item.discount) / 100;
     return sum + after + Math.round(after * (item.product.gst_rate || 0) / 100 * 100) / 100;
   }, 0);
+  // Discount on the whole bill: typed by the cashier, then the coupon
+  const manualBillPct = billDiscountPercent(billDiscKind, parseFloat(billDiscValue) || 0, rawTotal);
+  const couponOk = !!coupon && (!coupon.min_bill || rawTotal >= coupon.min_bill);
+  const couponPct = couponOk && coupon ? billDiscountPercent(coupon.kind, coupon.value, rawTotal) : 0;
+  const billPct = stackDiscount(manualBillPct, couponPct);
+  const afterBillTotal = rawTotal * (100 - billPct) / 100;
   const pointsValue = loyalty && usePoints > 0 ? Math.round(usePoints * loyalty.pointValue * 100) / 100 : 0;
-  const loyaltyPct = pointsPercent(pointsValue, rawTotal);
-  /** Discount % sent to the database: the line's own discount plus points */
-  const lineDiscount = (item: CartItem) => stackDiscount(item.discount, loyaltyPct);
+  const loyaltyPct = pointsPercent(pointsValue, afterBillTotal);
+  /** Discount % sent to the database: the line's own discount, then the bill discount, then points */
+  const lineDiscount = (item: CartItem) => stackDiscount(stackDiscount(item.discount, billPct), loyaltyPct);
+  /** Biggest discount the cashier typed by hand on any line (offers and points don't count) */
+  const manualDiscountPct = cart.reduce((m, i) => Math.max(m, stackDiscount(i.offerName ? 0 : i.discount, manualBillPct)), 0);
+  const isManager = role === 'admin' || role === 'manager';
+  const needsApproval = !isManager && maxDiscountPct != null && manualDiscountPct > maxDiscountPct + 0.001
+    && !(approval && approval.pct + 0.001 >= manualDiscountPct);
 
   const calculateItemTotal = (item: CartItem) => {
     const baseTotal = item.product.price * item.quantity;
@@ -473,7 +530,44 @@ export function SalesManager() {
     setHeldBills(next);
   };
 
+  const requestApproval = async () => {
+    if (!approvalPin.trim()) return;
+    setApproving(true);
+    const { data, error } = await supabase.rpc('approve_discount' as any, {
+      p_pin: approvalPin.trim(), p_percent: manualDiscountPct, p_amount: Math.round((rawTotal - afterBillTotal) * 100) / 100, p_note: null,
+    } as any);
+    setApproving(false);
+    setApprovalPin("");
+    if (error) {
+      toast({ title: "Not approved", description: error.code === 'PGRST202' ? "Approvals need the latest database update" : error.message, variant: "destructive" });
+      return;
+    }
+    if (!data) { toast({ title: "Wrong PIN", description: "Ask the manager to type their approval PIN", variant: "destructive" }); return; }
+    setApproval({ id: data as string, pct: manualDiscountPct });
+    setApprovalOpen(false);
+    toast({ title: "Discount approved", description: `${manualDiscountPct.toFixed(2)}% off allowed on this bill` });
+  };
+
+  const applyCoupon = async () => {
+    const code = couponInput.trim();
+    if (!code) return;
+    if (isOffline()) { toast({ title: "Coupons need internet", variant: "destructive" }); return; }
+    const { data, error } = await supabase.rpc('check_coupon' as any, { p_code: code, p_bill_total: Math.round(rawTotal * 100) / 100 } as any);
+    if (error) {
+      toast({ title: "Coupon not applied", description: error.code === 'PGRST202' ? "Coupons need the latest database update" : error.message, variant: "destructive" });
+      return;
+    }
+    const c = data as any;
+    setCoupon({ id: c.id, code: c.code, kind: c.kind, value: Number(c.value), min_bill: c.min_bill == null ? null : Number(c.min_bill) });
+    setCouponInput("");
+    toast({ title: `Coupon ${c.code} applied`, description: c.kind === 'flat' ? `₹${Number(c.value)} off` : `${Number(c.value)}% off` });
+  };
+
   const handleCompleteSale = () => {
+    if (needsApproval && cart.length > 0) {
+      setApprovalOpen(true);
+      return;
+    }
     if (cart.length === 0) {
       toast({
         title: "Error",
@@ -605,6 +699,9 @@ export function SalesManager() {
     setSplit({ cash: "", upi: "", card: "", credit: "" });
     setUsePoints(0);
     setPointsInput("");
+    setBillDiscValue("");
+    setCoupon(null);
+    setApproval(null);
     if (refresh) {
       fetchData(); // Refresh product data
       fetchPaymentSettings(); // Refresh payment settings
@@ -618,6 +715,10 @@ export function SalesManager() {
       toast({ title: "Points can't be used without internet", description: "Remove the points and try again", variant: "destructive" });
       return false;
     }
+    if (coupon) {
+      toast({ title: "Coupons can't be used without internet", description: "Remove the coupon and try again", variant: "destructive" });
+      return false;
+    }
     const ref = newClientRef();
     const { total } = getCartTotals();
     const soldAt = new Date().toISOString();
@@ -628,8 +729,8 @@ export function SalesManager() {
       items: saleArgs.p_items,
       lines: cart.map(i => ({ name: i.product.name, quantity: i.quantity })),
       customer_id: customer,
-      payment_method: paymentMethod,
-      payments: paymentMethod === 'split' ? payments : null,
+      payment_method: payments ? 'split' : paymentMethod,
+      payments: payments,
       location_id: saleArgs.p_location_id || null,
       expected_total: total,
       uncertain,
@@ -644,8 +745,8 @@ export function SalesManager() {
       invoice_number: offlineBillNumber(ref),
       created_at: soldAt,
       total_amount: total,
-      payment_method: paymentMethod,
-      payment_split: paymentMethod === 'split' ? payments : null,
+      payment_method: payments ? 'split' : paymentMethod,
+      payment_split: payments,
       customer_id: customer,
       location_id: saleArgs.p_location_id || null,
       is_interstate: false,
@@ -703,6 +804,9 @@ export function SalesManager() {
     if (paymentMethod === 'split') {
       payments = {};
       for (const k of SPLIT_KEYS) { const v = parseFloat(split[k]) || 0; if (v > 0) payments[k] = v; }
+    } else if (paymentMethod === 'bank') {
+      // Bank transfer is saved as a one-part split
+      payments = { bank: getCartTotals().total };
     }
 
     if (isOffline()) return saveOffline(saleArgs, payments, customer, false);
@@ -710,11 +814,12 @@ export function SalesManager() {
     let usedOldWay = false;
     try {
       let splitSale: any = null;
-      if (paymentMethod === 'split') {
+      if (payments) {
         const { p_payment_method, ...rest } = saleArgs;
         const { data, error } = await supabase.rpc('create_sale_split' as any, { ...rest, p_payments: payments } as any);
         if (error) {
           if (error.code === 'PGRST202') throw new Error('Split payment needs the latest database update. Use one payment method for now.');
+          if (/Unknown payment method: bank/.test(error.message || '')) throw new Error('Bank transfer needs the latest database update. Choose another payment method for now.');
           throw error;
         }
         splitSale = data;
@@ -751,6 +856,14 @@ export function SalesManager() {
         else toast({ title: `${usePoints} points used`, description: `₹${pointsValue.toFixed(2)} off` });
       }
 
+      if (sale?.id && !usedOldWay) {
+        if (coupon && couponOk) {
+          const { error: cErr } = await supabase.rpc('redeem_coupon' as any, { p_coupon_id: coupon.id, p_sale_id: sale.id, p_discount: Math.round((rawTotal - afterBillTotal) * 100) / 100 } as any);
+          if (cErr) toast({ title: "Coupon use not recorded", description: `${cErr.message}. The bill is saved with the discount.`, variant: "destructive" });
+        }
+        if (approval) supabase.rpc('attach_discount_approval' as any, { p_approval_id: approval.id, p_sale_id: sale.id } as any).then(() => undefined, () => undefined);
+      }
+
       finishSale(sale, cart, true);
       return true;
     } catch (error: any) {
@@ -776,6 +889,20 @@ export function SalesManager() {
     const matchesCategory = categoryFilter === "all" || productCategory === categoryFilter;
     return matchesSearch && matchesCategory;
   });
+
+  // Keyboard shortcuts for a fast till
+  const keyActions = useRef({ complete: () => {}, hold: () => {} });
+  keyActions.current = { complete: handleCompleteSale, hold: holdBill };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F2') { e.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); }
+      else if (e.key === 'F4') { e.preventDefault(); keyActions.current.hold(); }
+      else if (e.key === 'F7') { e.preventDefault(); const el = document.getElementById('bill-disc') as HTMLInputElement | null; el?.focus(); el?.select(); }
+      else if (e.key === 'F9') { e.preventDefault(); if (!savingRef.current) keyActions.current.complete(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const { subtotal, totalGST, total } = getCartTotals();
   const categories = Array.from(new Set(products.map(p => (p.category?.trim() || "Uncategorized"))));
@@ -847,6 +974,23 @@ export function SalesManager() {
             </Select>
           </div>
         </div>
+
+        {(() => {
+          const quick = topSellerIds.map(id => products.find(p => p.id === id)).filter((p): p is Product => !!p && (p.stock_quantity ?? 0) > 0);
+          if (!quick.length) return null;
+          return (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Best sellers (tap to add)</Label>
+              <div className="flex flex-wrap gap-2">
+                {quick.map(p => (
+                  <Button key={p.id} type="button" size="sm" variant="secondary" className="h-8" onClick={() => addToCart(p)}>
+                    {p.name} · ₹{p.price.toLocaleString('en-IN')}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         <Card>
           <CardContent className="p-4">
@@ -930,7 +1074,7 @@ export function SalesManager() {
                 />
               </div>
               {loyalty && (() => {
-                const maxPts = maxPointsForBill(loyalty.balance, loyalty.pointValue, rawTotal);
+                const maxPts = maxPointsForBill(loyalty.balance, loyalty.pointValue, afterBillTotal);
                 return (
                   <div className="rounded-md border p-2 text-sm space-y-2">
                     <div>
@@ -1077,16 +1221,62 @@ export function SalesManager() {
                   <span>GST:</span>
                   <span>₹{totalGST.toLocaleString('en-IN')}</span>
                 </div>
+                {billPct > 0 && (
+                  <div className="flex justify-between text-green-700">
+                    <span>Bill discount{coupon && couponOk ? ` (coupon ${coupon.code})` : ""}:</span>
+                    <span>−₹{(Math.round((rawTotal - afterBillTotal) * 100) / 100).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
                 {pointsValue > 0 && (
                   <div className="flex justify-between text-green-700">
                     <span>Points used ({usePoints}):</span>
-                    <span>−₹{(Math.round((rawTotal - total) * 100) / 100).toLocaleString('en-IN')}</span>
+                    <span>−₹{(Math.round((afterBillTotal - total) * 100) / 100).toLocaleString('en-IN')}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total:</span>
                   <span>₹{total.toLocaleString('en-IN')}</span>
                 </div>
+              </div>
+
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex gap-2 items-end">
+                  <div className="space-y-1 flex-1">
+                    <Label htmlFor="bill-disc" className="text-xs">Discount on bill</Label>
+                    <Input id="bill-disc" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0"
+                      value={billDiscValue} onChange={(e) => { setBillDiscValue(e.target.value); }} />
+                  </div>
+                  <Select value={billDiscKind} onValueChange={(v) => setBillDiscKind(v as "percent" | "flat")}>
+                    <SelectTrigger className="w-20" aria-label="Discount type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">%</SelectItem>
+                      <SelectItem value="flat">₹</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {coupon ? (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className={couponOk ? "text-green-700" : "text-destructive"}>
+                      Coupon {coupon.code}: {coupon.kind === 'flat' ? `₹${coupon.value}` : `${coupon.value}%`} off
+                      {!couponOk && coupon.min_bill ? ` (needs a bill of ₹${coupon.min_bill})` : ""}
+                    </span>
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => setCoupon(null)}>Remove</Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input className="h-9" aria-label="Coupon code" placeholder="Coupon code" value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyCoupon(); } }} />
+                    <Button size="sm" variant="outline" className="h-9 shrink-0" disabled={!couponInput.trim()} onClick={applyCoupon}>Apply</Button>
+                  </div>
+                )}
+                {maxDiscountPct != null && !isManager && (
+                  <p className={`text-xs ${needsApproval ? "text-destructive" : "text-muted-foreground"}`}>
+                    {needsApproval
+                      ? `Discount ${manualDiscountPct.toFixed(2)}% is above ${maxDiscountPct}%: a manager's PIN is needed`
+                      : approval ? `Manager approved up to ${approval.pct.toFixed(2)}%` : `You can give up to ${maxDiscountPct}% off`}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1099,6 +1289,7 @@ export function SalesManager() {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="card">Card</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="bank">Bank transfer</SelectItem>
                     <SelectItem value="credit">Credit (Udhaar)</SelectItem>
                     <SelectItem value="split">Split (part cash, part UPI...)</SelectItem>
                   </SelectContent>
@@ -1152,6 +1343,9 @@ export function SalesManager() {
                 >
                   Complete Sale - ₹{total.toLocaleString('en-IN')}
                 </Button>
+                <p className="hidden md:block text-xs text-muted-foreground text-center">
+                  Keys: F2 search · F4 hold bill · F7 bill discount · F9 complete sale
+                </p>
                 
                 {cart.length > 0 && (
                   <WhatsAppIntegration
@@ -1194,8 +1388,15 @@ export function SalesManager() {
                     toast({ title: "Pop-up blocked", description: "Allow pop-ups for this site to print bills", variant: "destructive" });
                   }
                 }}>
-                  Print 80mm Invoice
+                  Print {receiptWidth}mm bill
                 </Button>
+                <Select value={receiptWidth} onValueChange={(v) => { setReceiptWidth(v as ReceiptWidth); setReceiptWidthState(v as ReceiptWidth); }}>
+                  <SelectTrigger className="w-24" aria-label="Paper width"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="80">80mm</SelectItem>
+                    <SelectItem value="58">58mm</SelectItem>
+                  </SelectContent>
+                </Select>
                 <WhatsAppIntegration
                   type="invoice"
                   data={{
@@ -1238,6 +1439,26 @@ export function SalesManager() {
           }}
           isLoading={customerEntryLoading}
         />
+
+        {/* Manager approval for a bigger discount */}
+        <Dialog open={approvalOpen} onOpenChange={(o) => { setApprovalOpen(o); setApprovalPin(""); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Manager approval</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This bill has {manualDiscountPct.toFixed(2)}% off. Cashiers can give up to {maxDiscountPct}%. A manager types their PIN to allow it.
+              </p>
+              <Input type="password" inputMode="numeric" autoComplete="off" aria-label="Manager PIN" placeholder="Manager PIN" maxLength={6}
+                value={approvalPin} onChange={(e) => setApprovalPin(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); requestApproval(); } }} />
+              <Button className="w-full" disabled={approving || approvalPin.length < 4} onClick={requestApproval}>
+                {approving ? "Checking..." : "Approve discount"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* UPI QR Dialog */}
         <Dialog open={upiDialogOpen} onOpenChange={setUpiDialogOpen}>
