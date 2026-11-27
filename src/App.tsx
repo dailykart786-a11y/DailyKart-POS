@@ -20,6 +20,7 @@ import Purchases from "./pages/Purchases";
 import Register from "./pages/Register";
 import GstReports from "./pages/GstReports";
 import Stock from "./pages/Stock";
+import Offers from "./pages/Offers";
 import UserManagement from "./pages/UserManagement";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -109,6 +110,13 @@ const App = () => (
                 <ProtectedRoute>
                   <RoleProtectedRoute requiredPermission="products">
                     <Stock />
+                  </RoleProtectedRoute>
+                </ProtectedRoute>
+              } />
+              <Route path="/offers" element={
+                <ProtectedRoute>
+                  <RoleProtectedRoute requiredPermission="products">
+                    <Offers />
                   </RoleProtectedRoute>
                 </ProtectedRoute>
               } />
