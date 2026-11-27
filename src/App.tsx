@@ -14,6 +14,7 @@ import Products from "./pages/Products";
 import Customers from "./pages/Customers";
 import Expenses from "./pages/Expenses";
 import Reports from "./pages/Reports";
+import Khata from "./pages/Khata";
 import UserManagement from "./pages/UserManagement";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -61,6 +62,13 @@ const App = () => (
                 <ProtectedRoute>
                   <RoleProtectedRoute requiredPermission="expenses">
                     <Expenses />
+                  </RoleProtectedRoute>
+                </ProtectedRoute>
+              } />
+              <Route path="/khata" element={
+                <ProtectedRoute>
+                  <RoleProtectedRoute requiredPermission="khata">
+                    <Khata />
                   </RoleProtectedRoute>
                 </ProtectedRoute>
               } />

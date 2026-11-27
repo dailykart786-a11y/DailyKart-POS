@@ -10,7 +10,8 @@ import {
   Settings,
   FileBarChart,
   Truck,
-  BarChart3
+  BarChart3,
+  BookOpen
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -31,6 +32,7 @@ const navigationItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, permission: null },
   { title: "Sales", url: "/sales", icon: ShoppingCart, permission: "sales" },
   { title: "Products", url: "/products", icon: Package, permission: "products" },
+  { title: "Khata", url: "/khata", icon: BookOpen, permission: "khata" },
   { title: "Customers", url: "/customers", icon: Users, permission: "customers" },
   { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "expenses" },
   { title: "Reports", url: "/reports", icon: BarChart3, permission: "reports" },
