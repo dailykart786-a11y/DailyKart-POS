@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { 
   Boxes,
+  BadgePercent,
   LayoutDashboard, 
   ShoppingCart, 
   Package, 
@@ -41,6 +42,7 @@ const navigationItems = [
   { title: "Day closing", url: "/register", icon: Landmark, permission: "register" },
   { title: "Khata", url: "/khata", icon: BookOpen, permission: "khata" },
   { title: "Returns", url: "/returns", icon: Undo2, permission: "returns" },
+  { title: "Offers & loyalty", url: "/offers", icon: BadgePercent, permission: "products" },
   { title: "Customers", url: "/customers", icon: Users, permission: "customers" },
   { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "expenses" },
   { title: "Reports", url: "/reports", icon: BarChart3, permission: "reports" },

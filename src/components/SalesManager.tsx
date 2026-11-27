@@ -31,6 +31,7 @@ import {
   QueuedSale, addToQueue, cacheGet, cacheSet, isNetworkError, isOffline, newClientRef, offlineBillNumber,
 } from "@/lib/offline";
 import { Batch, estimateLeft, todayIso } from "@/lib/batches";
+import { Offer, bestOffer, maxPointsForBill, pointsPercent, stackDiscount } from "@/lib/offers";
 import {
   buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
   DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
@@ -70,7 +71,11 @@ interface CartItem {
   product: Product;
   quantity: number;
   discount: number;
+  /** Set when the discount came from an offer */
+  offerName?: string;
 }
+
+interface LoyaltyInfo { balance: number; pointValue: number; minRedeem: number; }
 
 interface Sale {
   id: string;
@@ -115,6 +120,33 @@ export function SalesManager() {
   const [split, setSplit] = useState<Record<SplitKey, string>>({ cash: "", upi: "", card: "", credit: "" });
   const [heldBills, setHeldBills] = useState<HeldBill[]>(() => readHeld());
   const searchRef = useRef<HTMLInputElement>(null);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [loyalty, setLoyalty] = useState<LoyaltyInfo | null>(null);
+  const [usePoints, setUsePoints] = useState(0);
+  const [pointsInput, setPointsInput] = useState("");
+
+  // Offers for this store (optional: needs the database update)
+  useEffect(() => {
+    let cancelled = false;
+    inStore(supabase.from('offers' as any).select('*').eq('is_active', true), billingStoreFilter)
+      .then(({ data, error }: any) => { if (!cancelled && !error) setOffers(((data || []) as any[]).map(o => ({ ...o, percent: Number(o.percent) }))); }, () => undefined);
+    return () => { cancelled = true; };
+  }, [billingStoreFilter]);
+
+  // Loyalty points of the chosen customer
+  useEffect(() => {
+    setUsePoints(0);
+    setPointsInput("");
+    setLoyalty(null);
+    if (!selectedCustomer) return;
+    let cancelled = false;
+    supabase.from('customer_loyalty' as any).select('*').eq('customer_id', selectedCustomer).maybeSingle()
+      .then(({ data, error }: any) => {
+        if (cancelled || error || !data || !data.loyalty_enabled) return;
+        setLoyalty({ balance: Number(data.balance) || 0, pointValue: Number(data.loyalty_point_value) || 0, minRedeem: Number(data.loyalty_min_redeem) || 0 });
+      }, () => undefined);
+    return () => { cancelled = true; };
+  }, [selectedCustomer]);
 
   useEffect(() => {
     fetchData();
@@ -136,7 +168,7 @@ export function SalesManager() {
       hsn: item.product.hsn_code,
       quantity: item.quantity,
       rate: item.product.price,
-      discountPercent: item.discount,
+      discountPercent: lineDiscount(item),
       gstRate: item.product.gst_rate,
     }));
     let customerName: string | null = null;
@@ -295,8 +327,8 @@ export function SalesManager() {
         return prev;
       }
       return existing
-        ? prev.map(item => item.product.id === product.id ? { ...item, quantity: nextQty } : item)
-        : [...prev, { product, quantity: 1, discount: 0 }];
+        ? prev.map(item => item.product.id === product.id ? withOffer({ ...item, quantity: nextQty }) : item)
+        : [...prev, withOffer({ product, quantity: 1, discount: 0 })];
     });
   };
 
@@ -318,6 +350,13 @@ export function SalesManager() {
     return false;
   };
 
+  // Puts the best live offer on a line, unless the cashier typed their own discount
+  const withOffer = (item: CartItem): CartItem => {
+    if (item.discount > 0 && !item.offerName) return item;
+    const o = offers.length ? bestOffer(item.product, item.quantity, offers, todayIso()) : null;
+    return o ? { ...item, discount: Number(o.percent), offerName: o.name } : { ...item, discount: item.offerName ? 0 : item.discount, offerName: undefined };
+  };
+
   const updateCartQuantity = (productId: string, quantity: number) => {
     if (quantity <= 0) {
       removeFromCart(productId);
@@ -326,7 +365,7 @@ export function SalesManager() {
     
     setCart(cart.map(item =>
       item.product.id === productId
-        ? { ...item, quantity }
+        ? withOffer({ ...item, quantity })
         : item
     ));
   };
@@ -334,7 +373,7 @@ export function SalesManager() {
   const updateCartDiscount = (productId: string, discount: number) => {
     setCart(cart.map(item =>
       item.product.id === productId
-        ? { ...item, discount: Math.max(0, Math.min(100, discount)) }
+        ? { ...item, discount: Math.max(0, Math.min(100, discount || 0)), offerName: undefined }
         : item
     ));
   };
@@ -343,9 +382,19 @@ export function SalesManager() {
     setCart(cart.filter(item => item.product.id !== productId));
   };
 
+  // Bill before loyalty points, then the extra % off that the used points give
+  const rawTotal = cart.reduce((sum, item) => {
+    const after = item.product.price * item.quantity * (100 - item.discount) / 100;
+    return sum + after + Math.round(after * (item.product.gst_rate || 0) / 100 * 100) / 100;
+  }, 0);
+  const pointsValue = loyalty && usePoints > 0 ? Math.round(usePoints * loyalty.pointValue * 100) / 100 : 0;
+  const loyaltyPct = pointsPercent(pointsValue, rawTotal);
+  /** Discount % sent to the database: the line's own discount plus points */
+  const lineDiscount = (item: CartItem) => stackDiscount(item.discount, loyaltyPct);
+
   const calculateItemTotal = (item: CartItem) => {
     const baseTotal = item.product.price * item.quantity;
-    const discountAmount = (baseTotal * item.discount) / 100;
+    const discountAmount = (baseTotal * lineDiscount(item)) / 100;
     const subtotalAfterDiscount = baseTotal - discountAmount;
     const gstAmount = calculateGST(item);
     return subtotalAfterDiscount + gstAmount;
@@ -353,7 +402,7 @@ export function SalesManager() {
 
   const calculateGST = (item: CartItem) => {
     const basePrice = item.product.price * item.quantity;
-    const discountAmount = (basePrice * item.discount) / 100;
+    const discountAmount = (basePrice * lineDiscount(item)) / 100;
     const discountedPrice = basePrice - discountAmount;
     const gstRate = item.product.gst_rate || 0;
     return Math.round((discountedPrice * gstRate) / 100 * 100) / 100;
@@ -362,7 +411,7 @@ export function SalesManager() {
   const getCartTotals = () => {
     const subtotalBeforeGST = cart.reduce((sum, item) => {
       const baseTotal = item.product.price * item.quantity;
-      const discountAmount = (baseTotal * item.discount) / 100;
+      const discountAmount = (baseTotal * lineDiscount(item)) / 100;
       return sum + (baseTotal - discountAmount);
     }, 0);
     
@@ -440,8 +489,8 @@ export function SalesManager() {
         return;
       }
     }
-    if (needsCustomer && selectedCustomer) {
-      // Udhaar for a known customer: no need to ask for details again
+    if ((needsCustomer || usePoints > 0) && selectedCustomer) {
+      // Known customer (udhaar or using points): no need to ask for details again
       processSale(selectedCustomer);
       return;
     }
@@ -554,6 +603,8 @@ export function SalesManager() {
     setSelectedCustomer("");
     setPaymentMethod("cash");
     setSplit({ cash: "", upi: "", card: "", credit: "" });
+    setUsePoints(0);
+    setPointsInput("");
     if (refresh) {
       fetchData(); // Refresh product data
       fetchPaymentSettings(); // Refresh payment settings
@@ -563,6 +614,10 @@ export function SalesManager() {
   // No internet: keep the bill on this device; it is sent when back online
   const saveOffline = (saleArgs: Record<string, any>, payments: Record<string, number> | null, customer: string | null, uncertain: boolean): boolean => {
     if (!user) return false;
+    if (usePoints > 0) {
+      toast({ title: "Points can't be used without internet", description: "Remove the points and try again", variant: "destructive" });
+      return false;
+    }
     const ref = newClientRef();
     const { total } = getCartTotals();
     const soldAt = new Date().toISOString();
@@ -622,7 +677,7 @@ export function SalesManager() {
       p_items: cart.map(item => ({
         product_id: item.product.id,
         quantity: item.quantity,
-        discount: item.discount || 0
+        discount: lineDiscount(item) || 0
       })),
       p_customer_id: customer,
       p_payment_method: paymentMethod
@@ -674,6 +729,12 @@ export function SalesManager() {
         title: "Sale Completed",
         description: `Invoice ${invoiceNumber} generated successfully`
       });
+
+      if (usePoints > 0 && sale?.id && sale.customer_id) {
+        const { error: pErr } = await supabase.rpc('redeem_loyalty_points' as any, { p_sale_id: sale.id, p_points: usePoints, p_value: pointsValue } as any);
+        if (pErr) toast({ title: "Points not deducted", description: `${pErr.message}. The bill is saved with the discount.`, variant: "destructive" });
+        else toast({ title: `${usePoints} points used`, description: `₹${pointsValue.toFixed(2)} off` });
+      }
 
       finishSale(sale, cart, true);
       return true;
@@ -853,6 +914,36 @@ export function SalesManager() {
                   }} 
                 />
               </div>
+              {loyalty && (() => {
+                const maxPts = maxPointsForBill(loyalty.balance, loyalty.pointValue, rawTotal);
+                return (
+                  <div className="rounded-md border p-2 text-sm space-y-2">
+                    <div>
+                      ⭐ <span className="font-medium">{loyalty.balance} points</span>{" "}
+                      <span className="text-muted-foreground">(worth ₹{(loyalty.balance * loyalty.pointValue).toFixed(2)})</span>
+                    </div>
+                    {usePoints > 0 ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Using {usePoints} points: −₹{pointsValue.toFixed(2)}</span>
+                        <Button size="sm" variant="ghost" className="h-7" onClick={() => { setUsePoints(0); setPointsInput(""); }}>Remove</Button>
+                      </div>
+                    ) : loyalty.balance < loyalty.minRedeem ? (
+                      <div className="text-xs text-muted-foreground">Points can be used from {loyalty.minRedeem} points</div>
+                    ) : cart.length > 0 && maxPts > 0 ? (
+                      <div className="flex gap-2">
+                        <Input className="h-8" inputMode="numeric" aria-label="Points to use" placeholder={`Up to ${maxPts}`} value={pointsInput} onChange={(e) => setPointsInput(e.target.value)} />
+                        <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => {
+                          const n = pointsInput.trim() ? parseInt(pointsInput, 10) : maxPts;
+                          if (!(n > 0)) return;
+                          if (n > maxPts) { toast({ title: `Up to ${maxPts} points on this bill`, description: "Points can pay up to half the bill", variant: "destructive" }); return; }
+                          if (n < loyalty.minRedeem && n < loyalty.balance) { toast({ title: `Use at least ${loyalty.minRedeem} points`, variant: "destructive" }); return; }
+                          setUsePoints(n);
+                        }}>Use points</Button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -911,6 +1002,7 @@ export function SalesManager() {
                       <p className="font-medium">{item.product.name}</p>
                       <p className="text-sm text-muted-foreground">
                         ₹{item.product.price.toLocaleString('en-IN')} each
+                        {item.offerName && <Badge variant="secondary" className="ml-2">Offer: {item.offerName}</Badge>}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -970,6 +1062,12 @@ export function SalesManager() {
                   <span>GST:</span>
                   <span>₹{totalGST.toLocaleString('en-IN')}</span>
                 </div>
+                {pointsValue > 0 && (
+                  <div className="flex justify-between text-green-700">
+                    <span>Points used ({usePoints}):</span>
+                    <span>−₹{(Math.round((rawTotal - total) * 100) / 100).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total:</span>
                   <span>₹{total.toLocaleString('en-IN')}</span>
