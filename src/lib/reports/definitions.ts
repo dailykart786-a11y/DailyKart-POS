@@ -36,6 +36,11 @@ export const KPI: Record<string, KpiDefinition> = {
   purchase_gst: { label: "GST on purchases", how: "GST charged on supplier bills dated in this period (input tax).", source: "Purchases" },
   supplier_paid: { label: "Paid to suppliers", how: "Supplier payments recorded in these dates, whatever bill they were for.", source: "Supplier payments" },
   purchase_returns: { label: "Returns to suppliers", how: "Goods sent back to suppliers in these dates, with GST.", source: "Purchase returns" },
+  output_gst: { label: "Output GST", how: "GST on sale bills in these dates, less GST on returns (credit notes) in these dates. CGST and SGST are half each; interstate bills are IGST.", source: "Sale lines, return lines" },
+  input_gst: { label: "Input GST", how: "GST on supplier bills dated in these dates, less GST on returns to suppliers. IGST when the supplier's state (or GSTIN) differs from the store's. Not the same as claimable credit (GSTR-2B).", source: "Purchase lines, purchase return lines" },
+  net_gst: { label: "Net GST (indicative)", how: "Output GST minus input GST. A working figure only, not a GST return.", source: "Output and input GST" },
+  staff_net_sales: { label: "Staff net sales", how: "Sales before GST on bills the person made, less the before-GST value of returns they handled.", source: "Bills, returns" },
+  sales_per_hour: { label: "Sales per hour", how: "Staff net sales divided by hours their register sessions were open (open sessions count up to now). Shown for at least 15 minutes on the register.", source: "Bills, register sessions" },
 };
 
 export const COST_MISSING_NOTE =
