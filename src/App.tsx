@@ -13,6 +13,7 @@ import SalesPage from "./pages/Sales";
 import Products from "./pages/Products";
 import Customers from "./pages/Customers";
 import Expenses from "./pages/Expenses";
+import Accounts from "./pages/Accounts";
 import Reports from "./pages/Reports";
 import Khata from "./pages/Khata";
 import Returns from "./pages/Returns";
@@ -97,6 +98,13 @@ const App = () => (
                 <ProtectedRoute>
                   <RoleProtectedRoute requiredPermission="register">
                     <Register />
+                  </RoleProtectedRoute>
+                </ProtectedRoute>
+              } />
+              <Route path="/accounts" element={
+                <ProtectedRoute>
+                  <RoleProtectedRoute requiredPermission="accounts">
+                    <Accounts />
                   </RoleProtectedRoute>
                 </ProtectedRoute>
               } />
