@@ -166,7 +166,13 @@ export function downloadCsv(filename: string, rows: Record<string, unknown>[], m
 }
 
 // ---------- Layout preferences, kept on this device per user
-export interface DashboardPrefs { order: string[]; hidden: string[]; range: RangeKey; custom?: { from: string; to: string } }
+export interface DashboardPrefs {
+  order: string[]; hidden: string[]; range: RangeKey; custom?: { from: string; to: string };
+  /** Overview panels this person has switched off. */
+  hiddenSections?: string[];
+  /** Whether the full set of number cards is open. */
+  moreOpen?: boolean;
+}
 
 const prefKey = (userId?: string) => `dailykart-dashboard-${userId || "anon"}`;
 
@@ -180,6 +186,8 @@ export function readPrefs(userId: string | undefined, defaults: DashboardPrefs):
       hidden: Array.isArray(p.hidden) ? p.hidden.filter((x: unknown) => typeof x === "string") : defaults.hidden,
       range: p.range && p.range in RANGE_LABELS ? p.range : defaults.range,
       custom: p.custom && typeof p.custom.from === "string" ? p.custom : undefined,
+      hiddenSections: Array.isArray(p.hiddenSections) ? p.hiddenSections.filter((x: unknown) => typeof x === "string") : defaults.hiddenSections,
+      moreOpen: typeof p.moreOpen === "boolean" ? p.moreOpen : defaults.moreOpen,
     };
   } catch {
     return defaults;
