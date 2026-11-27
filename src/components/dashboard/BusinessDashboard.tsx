@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarRange, Plus, RefreshCw, Settings2, ShoppingCart, Users, BarChart3 } from "lucide-react";
+import { CalendarRange, ChevronDown, Plus, RefreshCw, Settings2, ShoppingCart, Users, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,8 +19,27 @@ import { DEFAULT_HIDDEN, DEFAULT_ORDER, KPIS } from "./kpis";
 import { KpiCard } from "./KpiCard";
 import { CustomizeDialog } from "./CustomizeDialog";
 import { DashboardCharts } from "./DashboardCharts";
+import {
+  BusyHours, CategoryShare, HeroSales, InventoryWatch, PaymentMix, ProfitGauge, RecentBills, SalesTrend, TopProducts,
+} from "./OverviewPanels";
 
-const DEFAULT_PREFS: DashboardPrefs = { order: DEFAULT_ORDER, hidden: DEFAULT_HIDDEN, range: "today" };
+/** Panels a person can switch off in Customise. */
+const SECTIONS = [
+  { id: "hero", label: "Sales summary" },
+  { id: "payments", label: "How customers paid" },
+  { id: "highlights", label: "Key numbers" },
+  { id: "trend", label: "Sales over time" },
+  { id: "profit", label: "Profit gauge" },
+  { id: "top_products", label: "Top selling products" },
+  { id: "inventory", label: "Inventory watch" },
+  { id: "categories", label: "Sales by category" },
+  { id: "recent_bills", label: "Recent bills" },
+  { id: "busy_hours", label: "Busy hours" },
+  { id: "detailed", label: "Detailed charts" },
+];
+const HIGHLIGHTS = 4;
+
+const DEFAULT_PREFS: DashboardPrefs = { order: DEFAULT_ORDER, hidden: DEFAULT_HIDDEN, range: "today", hiddenSections: [], moreOpen: false };
 
 interface Props {
   /** Called when the database update for this dashboard hasn't been run yet. */
@@ -84,6 +103,15 @@ export function BusinessDashboard({ onMissing }: Props) {
   const periodLabel = days === 1 ? "day" : `${days} days`;
   const today = indiaToday();
   const fe = error ? friendlyError(error, "Couldn't load the dashboard") : null;
+  const hiddenSections = prefs.hiddenSections ?? [];
+  const show = (id: string) => !hiddenSections.includes(id);
+  const showProfit = show("profit") && data?.current.gross_profit !== undefined;
+  // Numbers already in the sales summary aren't repeated as key numbers
+  const inHero = ["gross_sales", "bills", "avg_bill", "net_sales", data?.current.gross_profit !== undefined ? "gross_profit" : ""];
+  const cardPool = show("hero") ? visible.filter((k) => !inHero.includes(k.id)) : visible;
+  const highlights = show("highlights") ? cardPool.slice(0, HIGHLIGHTS) : [];
+  const rest = cardPool.filter((k) => !highlights.includes(k));
+  const rangeText = prefs.range === "custom" && data ? (data.from === data.to ? fmt(data.from) : `${fmt(data.from)} – ${fmt(data.to)}`) : RANGE_LABELS[prefs.range];
 
   return (
     <div className="space-y-5">
@@ -126,6 +154,9 @@ export function BusinessDashboard({ onMissing }: Props) {
             hidden={prefs.hidden}
             onChange={(order, hidden) => update({ ...prefs, order: [...order, ...prefs.order.filter((id) => !order.includes(id))], hidden })}
             onReset={() => update({ ...DEFAULT_PREFS, range: prefs.range, custom: prefs.custom })}
+            sections={SECTIONS.filter((x) => x.id !== "profit" || data?.current.gross_profit !== undefined)}
+            hiddenSections={hiddenSections}
+            onSectionsChange={(h) => update({ ...prefs, hiddenSections: h })}
           />
         </div>
       </div>
@@ -146,25 +177,87 @@ export function BusinessDashboard({ onMissing }: Props) {
         <p className="text-sm text-destructive" role="alert">{fe.title}. Showing the last numbers loaded. <button className="underline" onClick={load}>Try again</button></p>
       )}
 
-      {/* Number cards */}
-      {!data && loading ? <CardGridSkeleton count={8} /> : data && (
-        visible.length === 0 ? (
-          <p className="text-sm text-muted-foreground">All cards are hidden. Use Customise to show some.</p>
-        ) : (
-          <div className={`grid gap-2 sm:gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 transition-opacity ${loading ? "opacity-60" : ""}`}>
-            {visible.map((k) => (
-              <KpiCard key={k.id} kpi={k} data={data} periodLabel={periodLabel} canOpen={!k.linkPermission || hasPermission(k.linkPermission)} />
-            ))}
-          </div>
-        )
-      )}
-
-      {/* Charts */}
       {!data && loading ? (
-        <Card><CardContent className="pt-6"><ChartSkeleton /></CardContent></Card>
+        <div className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-12">
+            <div className="lg:col-span-8 h-72 rounded-2xl bg-muted animate-pulse" />
+            <div className="lg:col-span-4 h-72 rounded-2xl bg-muted animate-pulse" />
+          </div>
+          <CardGridSkeleton count={4} />
+          <Card><CardContent className="pt-6"><ChartSkeleton /></CardContent></Card>
+        </div>
       ) : data && (
-        <div className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}>
-          <DashboardCharts key={`${data.from}-${data.to}`} data={data} rangeLabel={RANGE_LABELS[prefs.range]} storeLabel={storeLabel} hasPermission={hasPermission} />
+        <div className={`space-y-4 transition-opacity ${loading ? "opacity-60" : ""}`}>
+          {/* Sales summary and payment mix */}
+          {(show("hero") || show("payments")) && (
+            <div className="grid gap-4 lg:grid-cols-12">
+              {show("hero") && <div className={show("payments") ? "lg:col-span-8" : "lg:col-span-12"}><HeroSales data={data} periodLabel={periodLabel} rangeLabel={rangeText} /></div>}
+              {show("payments") && <div className={show("hero") ? "lg:col-span-4" : "lg:col-span-12"}><PaymentMix data={data} /></div>}
+            </div>
+          )}
+
+          {/* A few key numbers; the rest are one click away */}
+          {show("highlights") && (visible.length === 0 ? (
+            <p className="text-sm text-muted-foreground">All number cards are hidden. Use Customise to show some.</p>
+          ) : (
+            <div className="grid gap-2 sm:gap-3 grid-cols-2 xl:grid-cols-4">
+              {highlights.map((k) => (
+                <KpiCard key={k.id} kpi={k} data={data} periodLabel={periodLabel} canOpen={!k.linkPermission || hasPermission(k.linkPermission)} />
+              ))}
+            </div>
+          ))}
+
+          {/* Trend and profit */}
+          {(show("trend") || showProfit) && (
+            <div className="grid gap-4 lg:grid-cols-12">
+              {show("trend") && <SalesTrend data={data} className={showProfit ? "lg:col-span-8" : "lg:col-span-12"} />}
+              {showProfit && <ProfitGauge data={data} className={show("trend") ? "lg:col-span-4" : "lg:col-span-12"} />}
+            </div>
+          )}
+
+          {/* Products, stock and categories */}
+          {(show("top_products") || show("inventory") || show("categories")) && (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {show("top_products") && <TopProducts data={data} canOpen={hasPermission("reports")} />}
+              {show("inventory") && <InventoryWatch data={data} storeId={filterStoreId} canOpen={hasPermission("stock")} />}
+              {show("categories") && <CategoryShare data={data} />}
+            </div>
+          )}
+
+          {/* Latest bills and busy hours */}
+          {((show("recent_bills") && hasPermission("sales")) || show("busy_hours")) && (
+            <div className="grid gap-4 lg:grid-cols-12">
+              {show("recent_bills") && hasPermission("sales") && (
+                <RecentBills storeId={filterStoreId} refreshKey={updatedAt?.toISOString() || ""} className={show("busy_hours") ? "lg:col-span-7" : "lg:col-span-12"} />
+              )}
+              {show("busy_hours") && <BusyHours data={data} className={show("recent_bills") && hasPermission("sales") ? "lg:col-span-5" : "lg:col-span-12"} />}
+            </div>
+          )}
+
+          {/* Every number card */}
+          {rest.length > 0 && (
+            <div>
+              <Button variant="ghost" size="sm" className="gap-2 px-2" aria-expanded={!!prefs.moreOpen} onClick={() => update({ ...prefs, moreOpen: !prefs.moreOpen })}>
+                <ChevronDown className={`h-4 w-4 transition-transform ${prefs.moreOpen ? "rotate-180" : ""}`} />
+                {prefs.moreOpen ? "Hide more numbers" : `Show ${rest.length} more numbers`}
+              </Button>
+              {prefs.moreOpen && (
+                <div className="mt-2 grid gap-2 sm:gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {rest.map((k) => (
+                    <KpiCard key={k.id} kpi={k} data={data} periodLabel={periodLabel} canOpen={!k.linkPermission || hasPermission(k.linkPermission)} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Detailed charts with grouping and CSV */}
+          {show("detailed") && (
+            <div>
+              <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Detailed charts</h2>
+              <DashboardCharts key={`${data.from}-${data.to}`} data={data} rangeLabel={RANGE_LABELS[prefs.range]} storeLabel={storeLabel} hasPermission={hasPermission} />
+            </div>
+          )}
         </div>
       )}
     </div>
