@@ -20,6 +20,7 @@ import {
   FileSpreadsheet,
   BookText,
   UserCog,
+  ClipboardList,
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -39,6 +40,7 @@ import {
 const navigationItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, permission: null },
   { title: "Sales", url: "/sales", icon: ShoppingCart, permission: "sales" },
+  { title: "Orders", url: "/orders", icon: ClipboardList, permission: "sales" },
   { title: "Products", url: "/products", icon: Package, permission: "products" },
   { title: "Stock", url: "/stock", icon: Boxes, permission: "stock" },
   { title: "Purchases", url: "/purchases", icon: Truck, permission: "purchases" },
