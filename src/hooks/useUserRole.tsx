@@ -16,6 +16,11 @@ export function useUserRole() {
     }
   }, [user]);
 
+  // Last known role, so a manager keeps their pages when the internet drops
+  const cachedRole = () => {
+    try { return localStorage.getItem(`dailykart-role-${user?.id}`); } catch { return null; }
+  };
+
   const fetchUserRole = async () => {
     try {
       const { data, error } = await supabase
@@ -26,13 +31,15 @@ export function useUserRole() {
 
       if (error) {
         console.error('Error fetching user role:', error);
-        setRole('cashier');
+        setRole(cachedRole() || 'cashier');
       } else {
-        setRole(data?.role || 'cashier');
+        const r = data?.role || 'cashier';
+        setRole(r);
+        try { localStorage.setItem(`dailykart-role-${user?.id}`, r); } catch { /* private mode */ }
       }
     } catch (error) {
       console.error('Error fetching user role:', error);
-      setRole('cashier');
+      setRole(cachedRole() || 'cashier');
     } finally {
       setLoading(false);
     }

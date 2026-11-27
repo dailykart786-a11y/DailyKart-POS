@@ -10,7 +10,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Edit, Trash2, Package, Barcode, Wand2 } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Barcode, Wand2, FileUp, Download } from "lucide-react";
+import { ProductImportDialog } from "@/components/ProductImportDialog";
+import { downloadCsv } from "@/lib/gstReport";
 import { generateShopBarcode, printLabels } from "@/lib/labels";
 import {
   Table,
@@ -81,6 +83,8 @@ export function ProductsManager() {
   // Unit calculator state
   const [showUnitCalculator, setShowUnitCalculator] = useState(false);
   const [calculatedUnits, setCalculatedUnits] = useState<UnitVariant[]>([]);
+
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -299,11 +303,29 @@ export function ProductsManager() {
           <h2 className="text-2xl font-bold">Product Management</h2>
           <p className="text-muted-foreground">Manage your inventory and product catalog</p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          {editingProduct ? "Cancel Edit" : "Add Product"}
-        </Button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Button variant="outline" onClick={() => setShowImport(true)} className="gap-2">
+            <FileUp className="h-4 w-4" /> Import Excel
+          </Button>
+          <Button variant="outline" className="gap-2" disabled={!products.length} onClick={() => downloadCsv(`products-${new Date().toISOString().slice(0, 10)}.csv`, products.map(p => ({
+            Name: p.name, SKU: p.sku, Barcode: p.barcode || "", Category: p.category || "", Price: p.price, "Cost price": p.cost_price,
+            "GST %": p.gst_rate ?? 0, HSN: p.hsn_code || "", Stock: p.stock_quantity ?? 0, "Min stock": p.min_stock_level ?? 0, Unit: (p as any).base_unit || "pc",
+          })))}>
+            <Download className="h-4 w-4" /> Export
+          </Button>
+          <Button onClick={() => setShowForm(!showForm)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            {editingProduct ? "Cancel Edit" : "Add Product"}
+          </Button>
+        </div>
       </div>
+
+      <ProductImportDialog
+        open={showImport}
+        onOpenChange={setShowImport}
+        existing={products.map(p => ({ id: p.id, name: p.name, sku: p.sku, barcode: p.barcode, location_id: (p as any).location_id }))}
+        onDone={fetchProducts}
+      />
 
       {/* Add/Edit Product Form */}
       {showForm && (
