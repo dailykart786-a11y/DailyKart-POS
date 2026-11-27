@@ -12,6 +12,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Landmark, LockOpen, Lock } from "lucide-react";
+import { DailySummaryCard } from "@/components/DailySummaryCard";
 
 interface Totals {
   bills: number; total_sales: number; cash_sales: number; upi_sales: number; card_sales: number; credit_sales: number;
@@ -168,6 +169,8 @@ export default function Register() {
             </Card>
           </div>
         )}
+
+        {(role === "manager" || role === "admin") && <DailySummaryCard />}
 
         {!unavailable && history.length > 0 && (
           <Card>
