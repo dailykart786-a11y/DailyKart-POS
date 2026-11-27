@@ -667,7 +667,22 @@ export function SalesManager() {
     return true;
   };
 
+  // One save at a time: a double click or Enter can't make the same bill twice
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
   const processSale = async (customerId?: string | null): Promise<boolean> => {
+    if (!user || savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      return await processSaleOnce(customerId);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const processSaleOnce = async (customerId?: string | null): Promise<boolean> => {
     if (!user) return false;
 
     const customer = customerId || selectedCustomer || null;
@@ -1133,7 +1148,7 @@ export function SalesManager() {
                   onClick={handleCompleteSale} 
                   className="w-full" 
                   size="lg"
-                  disabled={cart.length === 0}
+                  disabled={cart.length === 0 || saving}
                 >
                   Complete Sale - ₹{total.toLocaleString('en-IN')}
                 </Button>

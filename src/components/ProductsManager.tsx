@@ -47,6 +47,7 @@ interface Product {
   min_stock_level: number | null;
   gst_rate: number | null;
   hsn_code?: string | null;
+  mrp?: number | null;
   image_url: string | null;
 }
 
@@ -67,6 +68,8 @@ export function ProductsManager() {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [costPrice, setCostPrice] = useState("");
+  const [mrp, setMrp] = useState("");
+  const [duplicates, setDuplicates] = useState<{ kind: string; code: string; names: string[] }[]>([]);
   const [oldPurchasePrice, setOldPurchasePrice] = useState("");
   const [newPurchasePrice, setNewPurchasePrice] = useState("");
   const [baseUnit, setBaseUnit] = useState("pc");
@@ -103,6 +106,9 @@ export function ProductsManager() {
         unit_variants: p.unit_variants ? (p.unit_variants as unknown as UnitVariant[]) : null
       }));
       setProducts(productsWithParsedVariants);
+      // Duplicate SKU / barcode warning (needs the database update; optional)
+      inStore(supabase.from('duplicate_product_codes' as any).select('kind, code, names'), filterStoreId)
+        .then(({ data, error: dErr }: any) => setDuplicates(dErr ? [] : (data || [])), () => setDuplicates([]));
     } catch (error) {
       toast({
         title: "Error",
@@ -118,6 +124,7 @@ export function ProductsManager() {
     setName("");
     setPrice("");
     setCostPrice("");
+    setMrp("");
     setOldPurchasePrice("");
     setNewPurchasePrice("");
     setBaseUnit("pc");
@@ -199,6 +206,16 @@ export function ProductsManager() {
     e.preventDefault();
     if (!user) return;
 
+    const mrpValue = mrp.trim() ? parseFloat(mrp) : null;
+    if (mrpValue !== null && !(mrpValue >= 0)) {
+      toast({ title: "Check the MRP", variant: "destructive" });
+      return;
+    }
+    if (mrpValue !== null && parseFloat(price) > mrpValue) {
+      toast({ title: "Selling price is above MRP", description: `Selling above MRP (₹${mrpValue}) is not allowed`, variant: "destructive" });
+      return;
+    }
+
     try {
       const productData: Record<string, any> = {
         name,
@@ -218,6 +235,8 @@ export function ProductsManager() {
         image_url: imageUrl || null,
         is_active: true
       };
+      // Only send MRP when there is one, so saving works before the database update
+      if (mrpValue !== null || editingProduct?.mrp != null) productData.mrp = mrpValue;
       // Only send HSN when there is one, so saving still works before the GST database update
       if (hsnCode.trim() || editingProduct?.hsn_code) {
         productData.hsn_code = hsnCode.trim().replace(/\s/g, '') || null;
@@ -234,15 +253,23 @@ export function ProductsManager() {
         ({ error } = await save(rest));
         if (!error) toast({ title: "HSN not saved", description: "Ask your admin to run the GST database update to store HSN codes" });
       }
+      if (error && 'mrp' in productData && /mrp/.test(error.message || '')) {
+        const { mrp: _m, ...rest } = productData;
+        ({ error } = await save(rest));
+        if (!error) toast({ title: "MRP not saved", description: "Ask your admin to run the latest database update to store MRP" });
+      }
       if (error) throw error;
       toast({ title: "Success", description: editingProduct ? "Product updated successfully" : "Product added successfully" });
 
       resetForm();
       fetchProducts();
-    } catch (error) {
+    } catch (error: any) {
+      const dup = error?.code === '23505';
       toast({
-        title: "Error",
-        description: "Failed to save product",
+        title: dup ? "Already in use" : "Error",
+        description: dup
+          ? `Another product in this store already has this ${/barcode/.test(error.message || '') ? 'barcode' : 'SKU'}`
+          : "Failed to save product",
         variant: "destructive"
       });
     }
@@ -253,6 +280,7 @@ export function ProductsManager() {
     setName(product.name);
     setPrice(product.price.toString());
     setCostPrice(product.cost_price.toString());
+    setMrp(product.mrp != null ? String(product.mrp) : "");
     setOldPurchasePrice(product.old_purchase_price?.toString() || "");
     setNewPurchasePrice(product.new_purchase_price?.toString() || "");
     setBaseUnit(product.base_unit || "pc");
@@ -278,7 +306,17 @@ export function ProductsManager() {
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        // Products on old bills are kept for the records: hide instead of delete
+        if (error.code === '23503' || /foreign key|violates/i.test(error.message || '')) {
+          const { error: hideErr } = await supabase.from('products').update({ is_active: false } as any).eq('id', id);
+          if (hideErr) throw hideErr;
+          toast({ title: "Product hidden", description: "It is on past bills, so it was hidden from billing instead of deleted. Edit and save it to bring it back." });
+          fetchProducts();
+          return;
+        }
+        throw error;
+      }
       toast({ title: "Success", description: "Product deleted successfully" });
       fetchProducts();
     } catch (error) {
@@ -327,6 +365,17 @@ export function ProductsManager() {
         onDone={fetchProducts}
       />
 
+      {duplicates.length > 0 && (
+        <Card className="border-destructive">
+          <CardContent className="p-4 text-sm space-y-1">
+            <p className="font-medium text-destructive">Some products share the same code. Fix them so scanning picks the right item:</p>
+            {duplicates.slice(0, 10).map((d) => (
+              <p key={d.kind + d.code}>{d.kind === 'barcode' ? 'Barcode' : 'SKU'} {d.code}: {d.names.join(', ')}</p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Add/Edit Product Form */}
       {showForm && (
         <Card>
@@ -367,6 +416,20 @@ export function ProductsManager() {
                     placeholder="Enter selling price"
                     required
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mrp">MRP (₹)</Label>
+                  <Input
+                    id="mrp"
+                    type="number"
+                    step="0.01"
+                    value={mrp}
+                    onChange={(e) => setMrp(e.target.value)}
+                    placeholder="Printed MRP (optional)"
+                  />
+                  {mrp && price && parseFloat(price) > parseFloat(mrp) && (
+                    <p className="text-xs text-destructive">Selling price is above MRP</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="costPrice">Cost Price (₹) *</Label>
@@ -617,7 +680,7 @@ export function ProductsManager() {
                           />
                         )}
                         <div>
-                          <p className="font-medium">{product.name}</p>
+                          <p className="font-medium">{product.name}{product.is_active === false && <Badge variant="outline" className="ml-2">Hidden</Badge>}</p>
                           <p className="text-sm text-muted-foreground">{product.sku}</p>
                         </div>
                       </div>

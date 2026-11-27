@@ -72,8 +72,10 @@ const text = (v: unknown): string => {
   return String(v).trim();
 };
 
+// Line number plus a short random part, so two imports never make the same SKU
+const runTag = Math.random().toString(36).slice(2, 5).toUpperCase();
 const makeSku = (name: string, i: number) =>
-  (name.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase() || "ITEM") + "-" + String(i).padStart(4, "0");
+  (name.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase() || "ITEM") + "-" + runTag + String(i).padStart(4, "0");
 
 /** Turns sheet rows (first row = headers) into checked products. */
 export function parseProductRows(rows: unknown[][], existing: ImportExisting[]): { rows: ImportRow[]; missingColumns: string[] } {

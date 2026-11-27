@@ -52,6 +52,9 @@ export default function Stock() {
   const [history, setHistory] = useState<Adjustment[]>([]);
   const [historyMissing, setHistoryMissing] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
+  const [moves, setMoves] = useState<any[] | null>(null);
+  const [mismatch, setMismatch] = useState<any[]>([]);
+  const [ledgerFor, setLedgerFor] = useState("");
   const [batchesMissing, setBatchesMissing] = useState(false);
   const [clearing, setClearing] = useState<{ batch: BatchLeft; remove: boolean } | null>(null);
   const [bPick, setBPick] = useState("");
@@ -114,6 +117,15 @@ export default function Stock() {
       supabase.from("product_batches" as any).select("id, product_id, batch_no, expiry_date, quantity, created_at, cleared_at").is("cleared_at", null),
       filterStoreId,
     ).order("created_at", { ascending: false }).limit(2000);
+    const [mRes, cRes] = await Promise.all([
+      inStore(
+        supabase.from("stock_movements" as any).select("id, created_at, movement_type, quantity_change, stock_before, stock_after, source_type, note, product_id, products(name)"),
+        filterStoreId,
+      ).order("created_at", { ascending: false }).limit(300),
+      inStore(supabase.from("stock_ledger_check" as any).select("product_id, name, stock_quantity, ledger_quantity"), filterStoreId),
+    ]);
+    setMoves(mRes.error ? null : (mRes.data || []) as any[]);
+    setMismatch(cRes.error ? [] : (cRes.data || []) as any[]);
     setBatchesMissing(!!bRes.error);
     setBatches(bRes.error ? [] : ((bRes.data || []) as any[]).map((b) => ({ ...b, quantity: Number(b.quantity) })));
   };
@@ -291,6 +303,7 @@ export default function Stock() {
             <TabsTrigger value="adjust">Adjust stock</TabsTrigger>
             <TabsTrigger value="expiry">Expiry{expiringSoon ? ` (${expiringSoon})` : ""}</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="ledger">Stock ledger</TabsTrigger>
           </TabsList>
 
           <TabsContent value="reorder">
@@ -506,6 +519,57 @@ export default function Stock() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+          </TabsContent>
+
+          <TabsContent value="ledger">
+            <Card>
+              <CardContent className="p-4 space-y-3 overflow-x-auto">
+                {moves === null ? (
+                  <p className="text-muted-foreground py-6 text-center">The stock ledger needs a database update. Ask your admin to run the latest dailykart-updates.sql in Supabase.</p>
+                ) : (
+                  <>
+                    {mismatch.length > 0 ? (
+                      <div className="rounded border border-destructive p-3 text-sm">
+                        <p className="font-medium text-destructive">Stock doesn't match the ledger for {mismatch.length} product{mismatch.length === 1 ? "" : "s"}:</p>
+                        {mismatch.slice(0, 10).map((m) => <p key={m.product_id}>{m.name}: stock {Number(m.stock_quantity)}, ledger {Number(m.ledger_quantity)}</p>)}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-green-700">Every product's stock matches its ledger.</p>
+                    )}
+                    <Input list="adj-products" placeholder="Show one product (type its name)" value={ledgerFor} onChange={(e) => setLedgerFor(e.target.value)} className="max-w-sm" />
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>When</TableHead>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead className="text-right">In / out</TableHead>
+                          <TableHead className="text-right">Stock</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {moves
+                          .filter((m) => !ledgerFor.trim() || (m.products?.name || "").toLowerCase().includes(ledgerFor.trim().toLowerCase()))
+                          .slice(0, 200)
+                          .map((m) => {
+                            const q = Number(m.quantity_change);
+                            const label: Record<string, string> = { sale: "Sale", return: "Customer return", purchase: "Purchase", adjustment: "Adjustment", manual: "Edited on product", opening: "Opening stock" };
+                            return (
+                              <TableRow key={m.id}>
+                                <TableCell className="text-sm whitespace-nowrap">{new Date(m.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</TableCell>
+                                <TableCell>{m.products?.name || "—"}</TableCell>
+                                <TableCell>{label[m.movement_type] || m.movement_type}{m.note ? <div className="text-xs text-muted-foreground">{REASONS[m.note] || m.note}</div> : null}</TableCell>
+                                <TableCell className={`text-right font-medium ${q < 0 ? "text-destructive" : "text-green-600"}`}>{q > 0 ? "+" : ""}{q}</TableCell>
+                                <TableCell className="text-right text-sm">{Number(m.stock_before)} → {Number(m.stock_after)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="history">
