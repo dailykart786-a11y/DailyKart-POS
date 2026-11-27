@@ -19,6 +19,7 @@ export const CATEGORIES: ReportCategory[] = [
     id: "sales", title: "Sales", icon: ShoppingBag,
     reports: [
       { id: "sales.summary", title: "Sales summary", about: "Gross and net sales, discounts, returns and GST by day, week, month or year." },
+      { id: "sales.explore", title: "Sales explorer", about: "Group sales and profit any way you like, filter by category, product, staff, customer or payment, compare with an earlier period and click to drill down." },
       { id: "sales.hourly", title: "Busy hours", about: "Which hours of the day bring the most bills and sales." },
       { id: "sales.weekday", title: "Day of the week", about: "Sales on each day of the week, to plan staff and stock." },
       { id: "sales.payments", title: "Payment methods", about: "How customers paid: cash, UPI, card, bank or udhaar. Split bills are counted once per method." },

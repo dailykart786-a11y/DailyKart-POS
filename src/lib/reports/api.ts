@@ -66,7 +66,7 @@ export interface ExpenseReport {
   by_method: { method: string; amount: number; count: number }[];
 }
 
-const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by|^ref|^kind|^bucket|^cashier|^party|^note|^phone|^hsn|^description|^job_title)$/;
+const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by|^ref|^kind|^bucket|^cashier|^party|^note|^phone|^hsn|^description|^job_title|^group|^cmp_from|^cmp_to)$/;
 
 /** Postgres numeric arrives as text; turn the number fields into numbers. */
 export function toNumbers<T>(v: T): T {
@@ -360,3 +360,40 @@ export const reportGst = (from: string, to: string, locationId: string | null) =
 
 export const reportStaff = (from: string, to: string, locationId: string | null) =>
   call<StaffReport>("report_staff", { p_from: from, p_to: to, p_location_id: locationId });
+
+// ---------------------------------------------------------------- Phase 7: sales explorer
+export type ExploreGroup = "day" | "week" | "month" | "hour" | "weekday" | "category" | "product" | "cashier" | "customer" | "payment";
+export interface ExploreFilters {
+  category?: string | null; productId?: string | null; cashierId?: string | null;
+  customerId?: string | null; customerType?: "all" | "walkin" | "registered"; method?: string | null;
+}
+export interface ExploreTotals {
+  bills: number; units: number; net_sales: number; gst: number; returns: number; cogs: number; cost_missing_value: number;
+  profit: number; customers: number; margin?: number | null; avg_bill?: number | null;
+}
+export interface ExploreRow {
+  key: string; label: string; category: string | null; bills: number; units: number; net_sales: number; gst: number; returns: number;
+  profit: number; margin: number | null; cost_missing_value: number; customers: number; share: number | null;
+  prev_net_sales: number | null; prev_profit: number | null; prev_bills: number | null;
+}
+export interface ExploreReport {
+  group: ExploreGroup; from: string; to: string; cmp_from: string | null; cmp_to: string | null; total: number;
+  totals: { cur: ExploreTotals; prev: ExploreTotals | null };
+  rows: ExploreRow[];
+}
+export interface FilterOptions { categories: string[]; staff: { id: string; name: string }[]; methods: string[] }
+
+export const reportSalesExplore = (
+  from: string, to: string, locationId: string | null, group: ExploreGroup, f: ExploreFilters,
+  compare: { from: string; to: string } | null, opts: Page & { sort?: string; dir?: "asc" | "desc" } = {},
+) =>
+  call<ExploreReport>("report_sales_explore", {
+    p_from: from, p_to: to, p_location_id: locationId, p_group: group,
+    p_category: f.category ?? null, p_product_id: f.productId ?? null, p_cashier_id: f.cashierId ?? null,
+    p_customer_id: f.customerId ?? null, p_customer_type: f.customerType ?? "all", p_method: f.method ?? null,
+    p_cmp_from: compare?.from ?? null, p_cmp_to: compare?.to ?? null,
+    p_sort: opts.sort ?? "net_sales", p_dir: opts.dir ?? "desc", p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });
+
+export const reportFilterOptions = (locationId: string | null) =>
+  call<FilterOptions>("report_filter_options", { p_location_id: locationId });

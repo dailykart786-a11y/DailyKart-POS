@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReportResult } from "@/lib/reports/api";
 import type { Range } from "@/lib/reports/dates";
 import { rangeLabel } from "@/lib/reports/dates";
+import type { ExploreState } from "@/lib/reports/explore";
 
 /** What every report view gets from the page. */
 export interface ReportCtx {
@@ -13,6 +14,8 @@ export interface ReportCtx {
   /** Bumped by Generate; views reload when it changes. */
   run: number;
   open: (reportId: string) => void;
+  /** Opens the sales explorer with this grouping and filters. */
+  explore: (s: ExploreState) => void;
   onMissing: () => void;
 }
 
