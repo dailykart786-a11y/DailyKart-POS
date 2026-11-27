@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { callAdminUsers } from "@/lib/adminUsers";
 
 interface Profile {
   id: string;
@@ -74,26 +75,14 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
         if (roleInsertError) throw roleInsertError;
       }
 
-      // Update email if provided
-      if (email.trim()) {
-        const { error: emailError } = await supabase.auth.admin.updateUserById(
-          user.user_id,
-          { email: email.trim() }
-        );
-        if (emailError) {
-          console.log('Email update not available in client SDK');
-        }
-      }
-
-      // Update password if provided
-      if (newPassword.trim()) {
-        const { error: passwordError } = await supabase.auth.admin.updateUserById(
-          user.user_id,
-          { password: newPassword.trim() }
-        );
-        if (passwordError) {
-          console.log('Password update not available in client SDK');
-        }
+      // Update email / password through the admin-users function
+      if (email.trim() || newPassword.trim()) {
+        await callAdminUsers({
+          action: "update",
+          userId: user.user_id,
+          email: email.trim() || undefined,
+          password: newPassword.trim() || undefined,
+        });
       }
 
       toast({
@@ -103,10 +92,10 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
 
       onSave();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to update user",
+        description: error.message || "Failed to update user",
         variant: "destructive"
       });
     } finally {
