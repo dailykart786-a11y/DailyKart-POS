@@ -84,10 +84,17 @@ export async function supplierLedger(supplierId: string, opening = 0, openingAt?
   let pays: any = await supabase.from("supplier_payments" as any)
     .select("id, amount, method, note, created_at, reversed_at, reversal_reason").eq("supplier_id", supplierId);
   if (pays.error) pays = await supabase.from("supplier_payments" as any).select("id, amount, method, note, created_at").eq("supplier_id", supplierId);
+  const rets: any = await supabase.from("purchase_returns" as any)
+    .select("id, return_number, total_amount, created_at, reason").eq("supplier_id", supplierId);
   const out: LedgerEntry[] = [];
   if (opening) {
     out.push({ id: "opening", at: openingAt || "2000-01-01T00:00:00Z", kind: "opening", label: "Opening balance",
       debit: opening > 0 ? opening : 0, credit: opening < 0 ? -opening : 0 });
+  }
+  if (!rets.error) {
+    for (const r of (rets.data || []) as any[]) {
+      out.push({ id: r.id, at: r.created_at, kind: "return", label: `Debit note ${r.return_number}${r.reason ? ` (${r.reason})` : ""}`, debit: 0, credit: Number(r.total_amount) });
+    }
   }
   for (const p of (pur.data || []) as any[]) {
     out.push({ id: p.id, at: p.created_at, kind: "purchase", label: `Bill ${p.bill_number || "-"} (${p.bill_date || ""})`, debit: Number(p.total_amount), credit: 0 });
