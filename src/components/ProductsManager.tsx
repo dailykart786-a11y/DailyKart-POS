@@ -45,6 +45,8 @@ interface Product {
   category: string | null;
   is_active: boolean | null;
   min_stock_level: number | null;
+  sold_by?: string | null; // newer database only
+  plu_code?: string | null;
   gst_rate: number | null;
   hsn_code?: string | null;
   mrp?: number | null;
@@ -82,6 +84,8 @@ export function ProductsManager() {
   const [gstRate, setGstRate] = useState("");
   const [hsnCode, setHsnCode] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [soldBy, setSoldBy] = useState("piece");
+  const [pluCode, setPluCode] = useState("");
   
   // Unit calculator state
   const [showUnitCalculator, setShowUnitCalculator] = useState(false);
@@ -137,6 +141,8 @@ export function ProductsManager() {
     setGstRate("");
     setHsnCode("");
     setImageUrl("");
+    setSoldBy("piece");
+    setPluCode("");
     setCalculatedUnits([]);
     setShowUnitCalculator(false);
     setEditingProduct(null);
@@ -226,17 +232,20 @@ export function ProductsManager() {
         base_unit: baseUnit || 'pc',
         base_unit_quantity: baseUnitQuantity ? parseFloat(baseUnitQuantity) : 1,
         unit_variants: calculatedUnits.length > 0 ? (calculatedUnits as any) : null,
-        stock_quantity: stockQuantity ? parseInt(stockQuantity) : 0,
+        stock_quantity: stockQuantity ? (soldBy === 'piece' ? parseInt(stockQuantity) : Math.round(parseFloat(stockQuantity) * 1000) / 1000) : 0,
         sku,
         barcode: barcode || null,
         category: category || null,
-        min_stock_level: minStockLevel ? parseInt(minStockLevel) : 10,
+        min_stock_level: minStockLevel ? (soldBy === 'piece' ? parseInt(minStockLevel) : parseFloat(minStockLevel)) : 10,
         gst_rate: gstRate ? parseFloat(gstRate) : 0,
         image_url: imageUrl || null,
         is_active: true
       };
       // Only send MRP when there is one, so saving works before the database update
       if (mrpValue !== null || editingProduct?.mrp != null) productData.mrp = mrpValue;
+      // Loose goods: only sent when used, so saving works before the database update
+      if (soldBy !== 'piece' || (editingProduct?.sold_by && editingProduct.sold_by !== 'piece')) productData.sold_by = soldBy;
+      if (pluCode.trim() || editingProduct?.plu_code) productData.plu_code = pluCode.trim() || null;
       // Only send HSN when there is one, so saving still works before the GST database update
       if (hsnCode.trim() || editingProduct?.hsn_code) {
         productData.hsn_code = hsnCode.trim().replace(/\s/g, '') || null;
@@ -257,6 +266,18 @@ export function ProductsManager() {
         const { mrp: _m, ...rest } = productData;
         ({ error } = await save(rest));
         if (!error) toast({ title: "MRP not saved", description: "Ask your admin to run the latest database update to store MRP" });
+      }
+      if (error && ('sold_by' in productData || 'plu_code' in productData) && /sold_by|plu_code/.test(error.message || '')) {
+        const { sold_by: _s, plu_code: _p, ...rest } = productData;
+        if (soldBy !== 'piece') {
+          toast({ title: "Loose goods need the database update", description: "Run the latest dailykart-updates.sql, then set this product as sold by weight", variant: "destructive" });
+          return;
+        }
+        ({ error } = await save(rest));
+      }
+      if (error && /uq_products_plu/.test(error.message || '')) {
+        toast({ title: "Scale code already used", description: "Another product in this store has this scale item code", variant: "destructive" });
+        return;
       }
       if (error) throw error;
       toast({ title: "Success", description: editingProduct ? "Product updated successfully" : "Product added successfully" });
@@ -294,6 +315,8 @@ export function ProductsManager() {
     setGstRate(product.gst_rate?.toString() || "");
     setHsnCode(product.hsn_code || "");
     setImageUrl(product.image_url || "");
+    setSoldBy(product.sold_by || "piece");
+    setPluCode(product.plu_code || "");
     setShowForm(true);
   };
 
@@ -495,10 +518,29 @@ export function ProductsManager() {
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="stockQuantity">Stock Quantity</Label>
+                  <Label>Sold by</Label>
+                  <Select value={soldBy} onValueChange={setSoldBy}>
+                    <SelectTrigger aria-label="Sold by"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="piece">Piece / packet</SelectItem>
+                      <SelectItem value="weight">Loose, by weight (price per kg)</SelectItem>
+                      <SelectItem value="volume">Loose, by volume (price per litre)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {soldBy !== "piece" && <p className="text-xs text-muted-foreground">Stock and bills are in {soldBy === "weight" ? "kg" : "litres"}, like 0.750</p>}
+                </div>
+                {soldBy !== "piece" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="pluCode">Scale item code (PLU)</Label>
+                    <Input id="pluCode" inputMode="numeric" value={pluCode} onChange={(e) => setPluCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Same code as on the weighing scale" />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="stockQuantity">Stock Quantity{soldBy !== "piece" ? (soldBy === "weight" ? " (kg)" : " (L)") : ""}</Label>
                   <Input
                     id="stockQuantity"
                     type="number"
+                    step={soldBy === "piece" ? "1" : "0.001"}
                     value={stockQuantity}
                     onChange={(e) => setStockQuantity(e.target.value)}
                     placeholder="Enter stock quantity"
@@ -737,7 +779,7 @@ export function ProductsManager() {
                     </TableCell>
                     <TableCell>
                       <span className={product.stock_quantity && product.min_stock_level && product.stock_quantity <= product.min_stock_level ? "text-warning font-medium" : ""}>
-                        {product.stock_quantity || 0}
+                        {product.stock_quantity || 0}{product.sold_by === 'weight' ? ' kg' : product.sold_by === 'volume' ? ' L' : ''}
                       </span>
                     </TableCell>
                     <TableCell>
