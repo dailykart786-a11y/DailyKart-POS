@@ -17,6 +17,7 @@ import { Store } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { OfflineStatus } from "@/components/OfflineStatus";
 import { AlertsBell } from "@/components/AlertsBell";
+import { LoginSecurity } from "@/components/LoginSecurity";
 import { readQueue } from "@/lib/offline";
 
 interface LayoutProps {
@@ -101,6 +102,7 @@ export function Layout({ children }: LayoutProps) {
                   <div className="p-1">
                     <UserProfile />
                     <UserSettings />
+                    <LoginSecurity />
                     <Button 
                       variant="ghost" 
                       className="w-full justify-start gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
