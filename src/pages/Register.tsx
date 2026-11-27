@@ -177,6 +177,10 @@ export default function Register() {
                 </div>
               )}
               <p className="text-sm text-muted-foreground">Count the cash in the drawer before your first bill. Enter how many of each note and coin you have.</p>
+              <div className="flex items-start gap-2 rounded-md border border-dashed p-3 text-sm">
+                <Smartphone className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
+                <p><span className="font-medium">UPI, card and other online payments</span> are entered when you close the register. Open the register first; at closing you'll see what the bills say you should have received online and type in what actually reached you.</p>
+              </div>
               <CashCounter idPrefix="open" value={openCount} onChange={setOpenCount} />
               <Button onClick={openRegister} disabled={busy} className="w-full sm:w-auto">
                 Open register with {rupees(countTotal(openCount))}
