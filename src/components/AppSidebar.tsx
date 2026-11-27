@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { 
   Boxes,
+  ScrollText,
   BadgePercent,
   LayoutDashboard, 
   ShoppingCart, 
@@ -47,6 +48,7 @@ const navigationItems = [
   { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "expenses" },
   { title: "Reports", url: "/reports", icon: BarChart3, permission: "reports" },
   { title: "GST reports", url: "/gst", icon: FileSpreadsheet, permission: "reports" },
+  { title: "Activity log", url: "/activity", icon: ScrollText, permission: "audit" },
   { title: "Users", url: "/users", icon: UserCheck, permission: "users" },
 ];
 
