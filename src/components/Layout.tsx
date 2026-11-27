@@ -15,6 +15,8 @@ import { useStore, ALL_STORES } from "@/hooks/useStore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Store } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { OfflineStatus } from "@/components/OfflineStatus";
+import { readQueue } from "@/lib/offline";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -26,6 +28,14 @@ export function Layout({ children }: LayoutProps) {
   const homeStoreName = stores.find(s => s.id === homeStoreId)?.name;
 
   const handleSignOut = async () => {
+    const waiting = user ? readQueue().filter(s => s.cashier_id === user.id).length : 0;
+    if (waiting > 0) {
+      toast({
+        title: `${waiting} offline bill${waiting === 1 ? "" : "s"} not synced yet`,
+        description: "They stay on this device and are sent when you sign in here again with internet.",
+        variant: "destructive",
+      });
+    }
     await signOut();
     toast({
       title: "Signed out successfully",
@@ -102,6 +112,8 @@ export function Layout({ children }: LayoutProps) {
               </DropdownMenu>
             </div>
           </header>
+
+          <OfflineStatus />
 
           {/* Main Content */}
           <main className="flex-1 p-4 md:p-6 bg-secondary/30 overflow-auto">

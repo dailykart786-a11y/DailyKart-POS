@@ -28,6 +28,9 @@ type SplitKey = typeof SPLIT_KEYS[number];
 import { QRCodeSVG } from "qrcode.react";
 import { useStore, inStore } from "@/hooks/useStore";
 import {
+  QueuedSale, addToQueue, cacheGet, cacheSet, isNetworkError, isOffline, newClientRef, offlineBillNumber,
+} from "@/lib/offline";
+import {
   buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
   DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
 } from "@/lib/invoice";
@@ -121,8 +124,8 @@ export function SalesManager() {
     if (!user) return;
     getMyLocationId(user.id)
       .then(fetchStoreDetails)
-      .then(setStoreDetails)
-      .catch(() => setStoreDetails(DEFAULT_STORE));
+      .then((d) => { setStoreDetails(d); cacheSet('store', user.id, d); })
+      .catch(() => setStoreDetails(cacheGet<StoreDetails>('store', user.id) || DEFAULT_STORE));
   }, [user]);
 
   // Build the printable bill from what was actually saved
@@ -201,7 +204,18 @@ export function SalesManager() {
 
       setProducts(productsRes.data || []);
       setCustomers(customersRes.data || []);
+      if (user) {
+        cacheSet('products', user.id, productsRes.data || []);
+        cacheSet('customers', user.id, customersRes.data || []);
+      }
     } catch (error) {
+      // No internet: use the lists saved on this device last time
+      const saved = user && isNetworkError(error) ? cacheGet<Product[]>('products', user.id) : null;
+      if (saved) {
+        setProducts(saved);
+        setCustomers(cacheGet<Customer[]>('customers', user!.id) || []);
+        return;
+      }
       toast({
         title: "Error",
         description: "Failed to fetch data",
@@ -406,6 +420,17 @@ export function SalesManager() {
     try {
       let customerId = null;
       
+      if (customerData.name.trim() && isOffline()) {
+        // A new customer can't be added without internet
+        if (needsCustomer) {
+          throw new Error("No internet: udhaar needs a customer who is already saved. Pick them from the customer list.");
+        }
+        toast({ title: "No internet", description: "Bill saved without the new customer's details" });
+        const saved = await processSale(null);
+        if (saved) setShowCustomerDialog(false);
+        return;
+      }
+
       // Create customer if name is provided
       if (customerData.name.trim()) {
         const { data: customer, error: customerError } = await supabase
@@ -484,28 +509,104 @@ export function SalesManager() {
     return sale;
   };
 
+  // After a bill is saved (or kept offline): show it for printing and clear the till
+  const finishSale = (sale: any, soldItems: CartItem[], refresh: boolean) => {
+    setLastSale(sale);
+    setLastSaleItems(soldItems);
+    setLastInvoice(null);
+    buildLastInvoice(sale, soldItems).then(setLastInvoice);
+
+    setCart([]);
+    setSelectedCustomer("");
+    setPaymentMethod("cash");
+    setSplit({ cash: "", upi: "", card: "", credit: "" });
+    if (refresh) {
+      fetchData(); // Refresh product data
+      fetchPaymentSettings(); // Refresh payment settings
+    }
+  };
+
+  // No internet: keep the bill on this device; it is sent when back online
+  const saveOffline = (saleArgs: Record<string, any>, payments: Record<string, number> | null, customer: string | null, uncertain: boolean): boolean => {
+    if (!user) return false;
+    const ref = newClientRef();
+    const { total } = getCartTotals();
+    const soldAt = new Date().toISOString();
+    const queued: QueuedSale = {
+      client_ref: ref,
+      sold_at: soldAt,
+      cashier_id: user.id,
+      items: saleArgs.p_items,
+      lines: cart.map(i => ({ name: i.product.name, quantity: i.quantity })),
+      customer_id: customer,
+      payment_method: paymentMethod,
+      payments: paymentMethod === 'split' ? payments : null,
+      location_id: saleArgs.p_location_id || null,
+      expected_total: total,
+      uncertain,
+      attempts: 0,
+    };
+    if (!addToQueue(queued)) {
+      toast({ title: "Sale not saved", description: "No internet, and this device could not store the bill. Note it on paper.", variant: "destructive" });
+      return false;
+    }
+    const sale = {
+      id: ref,
+      invoice_number: offlineBillNumber(ref),
+      created_at: soldAt,
+      total_amount: total,
+      payment_method: paymentMethod,
+      payment_split: paymentMethod === 'split' ? payments : null,
+      customer_id: customer,
+      location_id: saleArgs.p_location_id || null,
+      is_interstate: false,
+      offline: true,
+    };
+    // Take the sold items off the stock shown on this device
+    const sold = new Map<string, number>();
+    for (const i of cart) sold.set(i.product.id, (sold.get(i.product.id) || 0) + i.quantity);
+    setProducts(ps => {
+      const next = ps.map(p => sold.has(p.id) ? { ...p, stock_quantity: (p.stock_quantity || 0) - (sold.get(p.id) || 0) } : p);
+      cacheSet('products', user.id, next);
+      return next;
+    });
+    toast({
+      title: uncertain ? "Connection lost: bill kept on this device" : "Saved offline",
+      description: `${sale.invoice_number}. It gets its real bill number when the internet is back.`,
+    });
+    finishSale(sale, cart, false);
+    return true;
+  };
+
   const processSale = async (customerId?: string | null): Promise<boolean> => {
     if (!user) return false;
 
+    const customer = customerId || selectedCustomer || null;
+
+    // Save bill + items + stock in one database step
+    const saleArgs: Record<string, any> = {
+      p_items: cart.map(item => ({
+        product_id: item.product.id,
+        quantity: item.quantity,
+        discount: item.discount || 0
+      })),
+      p_customer_id: customer,
+      p_payment_method: paymentMethod
+    };
+    if (billingStoreFilter) saleArgs.p_location_id = billingStoreFilter;
+
+    let payments: Record<string, number> | null = null;
+    if (paymentMethod === 'split') {
+      payments = {};
+      for (const k of SPLIT_KEYS) { const v = parseFloat(split[k]) || 0; if (v > 0) payments[k] = v; }
+    }
+
+    if (isOffline()) return saveOffline(saleArgs, payments, customer, false);
+
+    let usedOldWay = false;
     try {
-      const customer = customerId || selectedCustomer || null;
-
-      // Save bill + items + stock in one database step
-      const saleArgs: Record<string, any> = {
-        p_items: cart.map(item => ({
-          product_id: item.product.id,
-          quantity: item.quantity,
-          discount: item.discount || 0
-        })),
-        p_customer_id: customer,
-        p_payment_method: paymentMethod
-      };
-      if (billingStoreFilter) saleArgs.p_location_id = billingStoreFilter;
-
       let splitSale: any = null;
       if (paymentMethod === 'split') {
-        const payments: Record<string, number> = {};
-        for (const k of SPLIT_KEYS) { const v = parseFloat(split[k]) || 0; if (v > 0) payments[k] = v; }
         const { p_payment_method, ...rest } = saleArgs;
         const { data, error } = await supabase.rpc('create_sale_split' as any, { ...rest, p_payments: payments } as any);
         if (error) {
@@ -530,33 +631,22 @@ export function SalesManager() {
         const missing = rpcError.code === 'PGRST202' || rpcError.code === '42883';
         if (!missing) throw rpcError;
         console.warn('create_sale not found in database, using old save method');
+        usedOldWay = true;
         sale = await legacySaveSale(customer);
       }
       const invoiceNumber = sale.invoice_number;
-
-      // Note: Loyalty points feature removed as per business requirements
 
       toast({
         title: "Sale Completed",
         description: `Invoice ${invoiceNumber} generated successfully`
       });
 
-      // Store last sale for printing/sharing
-      const soldItems = cart;
-      setLastSale(sale);
-      setLastSaleItems(soldItems);
-      setLastInvoice(null);
-      buildLastInvoice(sale, soldItems).then(setLastInvoice);
-
-      // Reset cart and form
-      setCart([]);
-      setSelectedCustomer("");
-      setPaymentMethod("cash");
-      setSplit({ cash: "", upi: "", card: "", credit: "" });
-      fetchData(); // Refresh product data
-      fetchPaymentSettings(); // Refresh payment settings
+      finishSale(sale, cart, true);
       return true;
     } catch (error: any) {
+      // The internet dropped while saving: keep the bill on this device.
+      // (Not for the old way of saving, which may have saved part of it.)
+      if (!usedOldWay && isNetworkError(error)) return saveOffline(saleArgs, payments, customer, true);
       toast({
         title: "Sale not saved",
         description: error?.message || "Failed to process sale",

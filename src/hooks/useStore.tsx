@@ -64,6 +64,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     else { setStores([]); setHomeStoreId(null); setIsAdmin(false); }
   }, [user, reloadStores]);
 
+  // Lists may have failed to load while offline: load them again when back
+  useEffect(() => {
+    const onOnline = () => { reloadStores(); };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [reloadStores]);
+
   const setSelectedStoreId = (id: string) => {
     setSelected(id);
     try { localStorage.setItem(STORAGE_KEY, id); } catch { /* private mode */ }
