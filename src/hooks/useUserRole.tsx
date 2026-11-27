@@ -41,8 +41,8 @@ export function useUserRole() {
   const hasPermission = (permission: string): boolean => {
     const permissions = {
       cashier: ['sales', 'khata'],
-      manager: ['sales', 'khata', 'returns', 'products', 'customers', 'expenses', 'reports'],
-      admin: ['sales', 'khata', 'returns', 'products', 'customers', 'expenses', 'reports', 'users']
+      manager: ['sales', 'khata', 'returns', 'purchases', 'products', 'customers', 'expenses', 'reports'],
+      admin: ['sales', 'khata', 'returns', 'purchases', 'products', 'customers', 'expenses', 'reports', 'users']
     };
 
     return permissions[role as keyof typeof permissions]?.includes(permission) || false;
