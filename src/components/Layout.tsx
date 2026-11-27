@@ -17,6 +17,7 @@ import { Store } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { OfflineStatus } from "@/components/OfflineStatus";
 import { AlertsBell } from "@/components/AlertsBell";
+import { LanguageToggle } from "@/components/LanguageToggle";
 import { LoginSecurity } from "@/components/LoginSecurity";
 import { readQueue } from "@/lib/offline";
 
@@ -91,6 +92,7 @@ export function Layout({ children }: LayoutProps) {
                 </p>
               </div>
               
+              <LanguageToggle />
               <AlertsBell />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
