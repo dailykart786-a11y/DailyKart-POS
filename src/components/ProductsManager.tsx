@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Edit, Trash2, Package } from "lucide-react";
@@ -53,6 +54,7 @@ const categories = [
 
 export function ProductsManager() {
   const { user } = useAuth();
+  const { filterStoreId, newRecordFields } = useStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -81,13 +83,13 @@ export function ProductsManager() {
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [filterStoreId]);
 
   const fetchProducts = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await inStore(supabase
         .from('products')
-        .select('*')
+        .select('*'), filterStoreId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -218,7 +220,7 @@ export function ProductsManager() {
 
       const save = (data: Record<string, any>) => editingProduct
         ? supabase.from('products').update(data as any).eq('id', editingProduct.id)
-        : supabase.from('products').insert(data as any);
+        : supabase.from('products').insert({ ...data, ...newRecordFields } as any);
 
       let { error } = await save(productData);
       if (error && 'hsn_code' in productData && /hsn_code/.test(error.message || '')) {

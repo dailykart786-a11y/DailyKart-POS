@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Edit, Users, Mail, Phone, Star, Trash2 } from "lucide-react";
@@ -34,6 +35,7 @@ interface Customer {
 
 export function CustomersManager() {
   const { user } = useAuth();
+  const { filterStoreId, newRecordFields } = useStore();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -49,13 +51,13 @@ export function CustomersManager() {
 
   useEffect(() => {
     fetchCustomers();
-  }, []);
+  }, [filterStoreId]);
 
   const fetchCustomers = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await inStore(supabase
         .from('customers')
-        .select('*')
+        .select('*'), filterStoreId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -107,7 +109,7 @@ export function CustomersManager() {
 
       const save = (data: Record<string, any>) => editingCustomer
         ? supabase.from('customers').update(data as any).eq('id', editingCustomer.id)
-        : supabase.from('customers').insert(data as any);
+        : supabase.from('customers').insert({ ...data, ...newRecordFields } as any);
 
       let { error } = await save(customerData);
       if (error && 'gstin' in customerData && /gstin|state_code/.test(error.message || '')) {

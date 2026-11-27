@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePickerWithRange } from "@/components/ui/date-picker";
 import { supabase } from "@/integrations/supabase/client";
+import { useStore, inStore } from "@/hooks/useStore";
 import { toast } from "@/hooks/use-toast";
 import { 
   FileText, 
@@ -44,6 +45,7 @@ interface ReportData {
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', 'hsl(var(--warning))', 'hsl(var(--destructive))'];
 
 export default function Reports() {
+  const { filterStoreId } = useStore();
   const [reportType, setReportType] = useState("sales");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [reportData, setReportData] = useState<ReportData>({
@@ -57,7 +59,7 @@ export default function Reports() {
 
   useEffect(() => {
     generateReport();
-  }, [reportType, dateRange]);
+  }, [reportType, dateRange, filterStoreId]);
 
   const generateReport = async () => {
     setLoading(true);
@@ -94,13 +96,13 @@ export default function Reports() {
   };
 
   const generateSalesReport = async (startDate: Date, endDate: Date) => {
-    const { data: sales } = await supabase
+    const { data: sales } = await inStore(supabase
       .from('sales')
       .select(`
         *,
         customers(name),
         sale_items(quantity, unit_price, total_price, products(name, category))
-      `)
+      `), filterStoreId)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .order('created_at', { ascending: true });
@@ -126,12 +128,12 @@ export default function Reports() {
   };
 
   const generateProfitReport = async (startDate: Date, endDate: Date) => {
-    const { data: sales } = await supabase
+    const { data: sales } = await inStore(supabase
       .from('sales')
       .select(`
         *,
         sale_items(quantity, unit_price, total_price, products(cost_price, name))
-      `)
+      `), filterStoreId)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString());
 
@@ -156,12 +158,12 @@ export default function Reports() {
   };
 
   const generateCustomerReport = async (startDate: Date, endDate: Date) => {
-    const { data: customers } = await supabase
+    const { data: customers } = await inStore(supabase
       .from('customers')
       .select(`
         *,
         sales(total_amount, created_at)
-      `)
+      `), filterStoreId)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString());
 
@@ -183,15 +185,17 @@ export default function Reports() {
   };
 
   const generateProductReport = async (startDate: Date, endDate: Date) => {
-    const { data: saleItems } = await supabase
+    let saleItemsQuery = supabase
       .from('sale_items')
       .select(`
         *,
         products(name, category, price, cost_price),
-        sales(created_at)
+        sales!inner(created_at, location_id)
       `)
       .gte('sales.created_at', startDate.toISOString())
       .lte('sales.created_at', endDate.toISOString());
+    if (filterStoreId) saleItemsQuery = saleItemsQuery.eq('sales.location_id', filterStoreId);
+    const { data: saleItems } = await saleItemsQuery;
 
     const productSales = saleItems?.reduce((acc: any, item) => {
       const productName = item.products?.name || 'Unknown';
@@ -216,9 +220,9 @@ export default function Reports() {
   };
 
   const generateExpenseReport = async (startDate: Date, endDate: Date) => {
-    const { data: expenses } = await supabase
+    const { data: expenses } = await inStore(supabase
       .from('expenses')
-      .select('*')
+      .select('*'), filterStoreId)
       .gte('date', startDate.toISOString().split('T')[0])
       .lte('date', endDate.toISOString().split('T')[0]);
 

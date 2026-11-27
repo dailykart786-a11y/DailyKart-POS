@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
+import { useStore, inStore } from "@/hooks/useStore";
 import { toast } from "@/hooks/use-toast";
 import { Calendar, Download, Filter, Receipt } from "lucide-react";
 import {
@@ -52,15 +53,16 @@ export function AdminSalesView() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
+  const { filterStoreId } = useStore();
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [filterStoreId]);
 
   const fetchData = async () => {
     try {
       const [salesRes, customersRes, profilesRes] = await Promise.all([
-        supabase.from('sales').select('*').order('created_at', { ascending: false }),
+        inStore(supabase.from('sales').select('*'), filterStoreId).order('created_at', { ascending: false }),
         supabase.from('customers').select('*'),
         supabase.from('profiles').select('*')
       ]);

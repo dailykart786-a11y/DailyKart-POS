@@ -11,9 +11,10 @@ import { UserPlus } from "lucide-react";
 interface AddCustomerDialogProps {
   onCustomerAdded: (customer: { id: string; name: string }) => void;
   children?: React.ReactNode;
+  extraFields?: Record<string, any>;
 }
 
-export function AddCustomerDialog({ onCustomerAdded, children }: AddCustomerDialogProps) {
+export function AddCustomerDialog({ onCustomerAdded, children, extraFields }: AddCustomerDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -41,7 +42,8 @@ export function AddCustomerDialog({ onCustomerAdded, children }: AddCustomerDial
           name: name.trim(),
           phone: phone.trim() || null,
           email: email.trim() || null,
-          address: address.trim() || null
+          address: address.trim() || null,
+          ...(extraFields || {})
         })
         .select()
         .single();

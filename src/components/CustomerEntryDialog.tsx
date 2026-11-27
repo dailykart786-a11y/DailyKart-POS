@@ -18,13 +18,16 @@ interface CustomerEntryDialogProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (customerData: CustomerData) => void;
   isLoading?: boolean;
+  /** Complete the sale without customer details (walk-in). */
+  onSkip?: () => void;
 }
 
 export function CustomerEntryDialog({ 
   open, 
   onOpenChange, 
   onSubmit, 
-  isLoading = false 
+  isLoading = false,
+  onSkip
 }: CustomerEntryDialogProps) {
   const [customerData, setCustomerData] = useState<CustomerData>({
     name: "",
@@ -123,11 +126,11 @@ export function CustomerEntryDialog({
             <Button 
               type="button" 
               variant="outline" 
-              onClick={handleClose}
+              onClick={onSkip || handleClose}
               className="flex-1"
               disabled={isLoading}
             >
-              Skip
+              {onSkip ? "Walk-in (no details)" : "Skip"}
             </Button>
             <Button 
               type="submit" 
