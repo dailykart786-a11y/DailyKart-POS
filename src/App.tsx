@@ -21,6 +21,7 @@ import Register from "./pages/Register";
 import GstReports from "./pages/GstReports";
 import Stock from "./pages/Stock";
 import Offers from "./pages/Offers";
+import ActivityLog from "./pages/ActivityLog";
 import UserManagement from "./pages/UserManagement";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -124,6 +125,13 @@ const App = () => (
                 <ProtectedRoute>
                   <RoleProtectedRoute requiredPermission="reports">
                     <GstReports />
+                  </RoleProtectedRoute>
+                </ProtectedRoute>
+              } />
+              <Route path="/activity" element={
+                <ProtectedRoute>
+                  <RoleProtectedRoute requiredPermission="audit">
+                    <ActivityLog />
                   </RoleProtectedRoute>
                 </ProtectedRoute>
               } />
