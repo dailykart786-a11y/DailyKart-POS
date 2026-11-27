@@ -1,4 +1,5 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useRef } from 'react';
+import { toast } from '@/hooks/use-toast';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -13,15 +14,31 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Set just before a sign-out the person asked for, so it isn't reported as an expired sign-in
+let manualSignOutAt = 0;
+export function markManualSignOut() { manualSignOutAt = Date.now(); }
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  // Tells a sign-out the person asked for apart from an expired sign-in
+  const signingOut = useRef(false);
+  const hadUser = useRef(false);
 
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        if (event === 'SIGNED_OUT' && hadUser.current && !signingOut.current && Date.now() - manualSignOutAt > 10000) {
+          toast({
+            title: 'Your sign-in has expired',
+            description: 'Please sign in again. Bills already saved are safe.',
+            variant: 'warning',
+          });
+        }
+        if (event === 'SIGNED_OUT') signingOut.current = false;
+        hadUser.current = !!session?.user;
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
@@ -30,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      hadUser.current = hadUser.current || !!session?.user;
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
@@ -79,7 +97,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    signingOut.current = true;
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      // In case no sign-out event arrives (e.g. offline)
+      window.setTimeout(() => { signingOut.current = false; }, 3000);
+    }
   };
 
   const value = {
