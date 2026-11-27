@@ -15,7 +15,7 @@ import { Truck, Plus, Trash2, Save, IndianRupee } from "lucide-react";
 
 interface Product { id: string; name: string; sku: string; barcode: string | null; cost_price: number; gst_rate: number | null; stock_quantity: number | null; }
 interface Supplier { supplier_id: string; name: string; phone: string | null; gstin: string | null; purchase_total: number; paid_total: number; balance: number; }
-interface Line { product: Product; quantity: string; unitCost: string; gstRate: string; }
+interface Line { product: Product; quantity: string; unitCost: string; gstRate: string; batchNo?: string; expiry?: string; }
 interface PurchaseRow { id: string; bill_number: string | null; bill_date: string; total_amount: number; tax_amount: number; suppliers?: { name: string } | null; }
 
 const rupees = (n: number) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -113,6 +113,29 @@ export default function Purchases() {
       } as any);
       if (error) throw error;
       toast({ title: "Purchase saved", description: `Stock added. Bill total ${rupees(Number((data as any).total_amount))}` });
+      // Batch numbers / expiry dates (optional, saved after the bill)
+      const batches = lines
+        .filter((l) => (l.batchNo || "").trim() || l.expiry)
+        .map((l) => ({
+          product_id: l.product.id,
+          batch_no: (l.batchNo || "").trim() || null,
+          expiry_date: l.expiry || null,
+          quantity: Math.round(parseFloat(l.quantity) || 0),
+          purchase_id: (data as any)?.id || null,
+        }))
+        .filter((b) => b.quantity > 0);
+      if (batches.length) {
+        const { error: bErr } = await supabase.from("product_batches" as any).insert(batches as any);
+        if (bErr) {
+          toast({
+            title: "Batch / expiry not saved",
+            description: bErr.code === "PGRST205" || /product_batches/.test(bErr.message || "")
+              ? "This needs the latest database update (dailykart-updates.sql). The purchase itself is saved."
+              : bErr.message,
+            variant: "destructive",
+          });
+        }
+      }
       setLines([]); setBillNo(""); setPaidNow("");
       load();
     } catch (e: any) {
@@ -226,6 +249,8 @@ export default function Purchases() {
                             <TableHead className="w-24">Qty</TableHead>
                             <TableHead className="w-28">Cost / unit (before GST)</TableHead>
                             <TableHead className="w-20">GST %</TableHead>
+                            <TableHead className="w-28">Batch (optional)</TableHead>
+                            <TableHead className="w-36">Expiry (optional)</TableHead>
                             <TableHead className="text-right">Amount</TableHead>
                             <TableHead></TableHead>
                           </TableRow>
@@ -242,6 +267,8 @@ export default function Purchases() {
                                 <TableCell><Input type="number" min="0" step="any" aria-label={`Quantity of ${l.product.name}`} value={l.quantity} onChange={(e) => setLine(l.product.id, { quantity: e.target.value })} /></TableCell>
                                 <TableCell><Input type="number" min="0" step="0.01" aria-label={`Cost of ${l.product.name}`} value={l.unitCost} onChange={(e) => setLine(l.product.id, { unitCost: e.target.value })} /></TableCell>
                                 <TableCell><Input type="number" min="0" step="0.01" aria-label={`GST of ${l.product.name}`} value={l.gstRate} onChange={(e) => setLine(l.product.id, { gstRate: e.target.value })} /></TableCell>
+                                <TableCell><Input aria-label={`Batch of ${l.product.name}`} value={l.batchNo || ""} onChange={(e) => setLine(l.product.id, { batchNo: e.target.value })} /></TableCell>
+                                <TableCell><Input type="date" aria-label={`Expiry of ${l.product.name}`} value={l.expiry || ""} onChange={(e) => setLine(l.product.id, { expiry: e.target.value })} /></TableCell>
                                 <TableCell className="text-right">{rupees(t + r2(t * (parseFloat(l.gstRate) || 0) / 100))}</TableCell>
                                 <TableCell>
                                   <Button size="icon" variant="ghost" aria-label={`Remove ${l.product.name}`} onClick={() => setLines((ls) => ls.filter((x) => x.product.id !== l.product.id))}>
