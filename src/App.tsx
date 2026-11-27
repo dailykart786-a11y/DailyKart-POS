@@ -18,6 +18,7 @@ import Khata from "./pages/Khata";
 import Returns from "./pages/Returns";
 import Purchases from "./pages/Purchases";
 import Register from "./pages/Register";
+import GstReports from "./pages/GstReports";
 import UserManagement from "./pages/UserManagement";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -100,6 +101,13 @@ const App = () => (
                 <ProtectedRoute>
                   <RoleProtectedRoute requiredPermission="reports">
                     <Reports />
+                  </RoleProtectedRoute>
+                </ProtectedRoute>
+              } />
+              <Route path="/gst" element={
+                <ProtectedRoute>
+                  <RoleProtectedRoute requiredPermission="reports">
+                    <GstReports />
                   </RoleProtectedRoute>
                 </ProtectedRoute>
               } />

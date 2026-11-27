@@ -13,7 +13,8 @@ import {
   BarChart3,
   BookOpen,
   Undo2,
-  Landmark
+  Landmark,
+  FileSpreadsheet
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -41,6 +42,7 @@ const navigationItems = [
   { title: "Customers", url: "/customers", icon: Users, permission: "customers" },
   { title: "Expenses", url: "/expenses", icon: DollarSign, permission: "expenses" },
   { title: "Reports", url: "/reports", icon: BarChart3, permission: "reports" },
+  { title: "GST reports", url: "/gst", icon: FileSpreadsheet, permission: "reports" },
   { title: "Users", url: "/users", icon: UserCheck, permission: "users" },
 ];
 
