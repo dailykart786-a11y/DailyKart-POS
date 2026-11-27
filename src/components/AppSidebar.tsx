@@ -33,6 +33,7 @@ const navigationItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, permission: null },
   { title: "Sales", url: "/sales", icon: ShoppingCart, permission: "sales" },
   { title: "Products", url: "/products", icon: Package, permission: "products" },
+  { title: "Purchases", url: "/purchases", icon: Truck, permission: "purchases" },
   { title: "Khata", url: "/khata", icon: BookOpen, permission: "khata" },
   { title: "Returns", url: "/returns", icon: Undo2, permission: "returns" },
   { title: "Customers", url: "/customers", icon: Users, permission: "customers" },
