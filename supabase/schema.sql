@@ -2186,6 +2186,17 @@ grant execute on function public.redeem_loyalty_points(uuid, integer, numeric) t
 notify pgrst, 'reload schema';
 
 -- =====================================================================
+-- DailyKart: WhatsApp number for the daily summary
+--
+-- Safe to run more than once. Only ADDS things.
+-- =====================================================================
+
+-- The owner's WhatsApp number the end-of-day summary is sent to
+alter table public.locations add column if not exists summary_whatsapp text;
+
+notify pgrst, 'reload schema';
+
+-- =====================================================================
 -- After running this file:
 --  1. Supabase > Authentication > Sign In / Providers: turn OFF "Allow new users to sign up".
 --  2. Supabase > Authentication > Users > Add user: create your own login.
