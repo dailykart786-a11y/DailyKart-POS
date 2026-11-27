@@ -1,6 +1,7 @@
 import { Layout } from "@/components/Layout";
 import { ProductsManager } from "@/components/ProductsManager";
 import { ScaleSettingsCard } from "@/components/ScaleSettingsCard";
+import { CatalogueSettingsCard } from "@/components/CatalogueSettingsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +87,7 @@ export default function Products() {
     <Layout>
       <ProductsManager />
       <ScaleSettingsCard />
+      <CatalogueSettingsCard />
     </Layout>
   );
 }
