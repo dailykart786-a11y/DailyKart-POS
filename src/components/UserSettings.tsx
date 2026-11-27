@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { setLang, onLangChange } from "@/lib/language";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -33,6 +34,8 @@ export function UserSettings() {
     }
   }, []);
 
+  useEffect(() => onLangChange((l) => setLanguage(l)), []);
+
   const handleSaveSettings = () => {
     // Save settings to localStorage
     localStorage.setItem('user-settings', JSON.stringify({
@@ -41,6 +44,7 @@ export function UserSettings() {
       currency,
       theme
     }));
+    setLang(language === "hi" ? "hi" : "en");
 
     toast({
       title: "Settings Saved",
@@ -127,7 +131,6 @@ export function UserSettings() {
                   <SelectContent>
                     <SelectItem value="en">English</SelectItem>
                     <SelectItem value="hi">हिंदी</SelectItem>
-                    <SelectItem value="mr">मराठी</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
