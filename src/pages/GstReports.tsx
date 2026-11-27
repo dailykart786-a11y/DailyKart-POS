@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useStore } from "@/hooks/useStore";
 import { toast } from "@/hooks/use-toast";
 import { fetchStoreDetails } from "@/lib/invoice";
+import { EInvoiceCard } from "@/components/EInvoiceCard";
 import {
   b2bInvoices, byRate, downloadCsv, hsnSummary, sum, totalTax,
   type PurchaseLine, type ReturnLine, type SaleLine, type TaxSplit,
@@ -322,6 +323,8 @@ export default function GstReports() {
                 {hsn.some((r) => r.hsn === "NO HSN") && <p className="text-xs text-destructive mt-2">Some products have no HSN code. Add it on the Products page.</p>}
               </CardContent>
             </Card>
+
+            <EInvoiceCard month={month} storeId={filterStoreId || (isAdmin && stores.length > 1 ? null : workingStoreId)} />
           </>
         )}
       </div>
