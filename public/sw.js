@@ -5,7 +5,9 @@
 // - /assets/* files have a unique name per version, so a saved copy is
 //   always correct.
 // - Requests to the database (Supabase) are never touched.
-const CACHE = "dailykart-app-v1";
+const CACHE = "dailykart-app-v2";
+// Files the installed app needs to open without internet
+const SHELL = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -17,7 +19,7 @@ self.addEventListener("install", (event) => {
         await cache.put("/", res);
         // Save the scripts and styles the page needs
         const urls = Array.from(html.matchAll(/(?:src|href)="(\/[^"]+\.(?:js|css|png|ico|svg))"/g)).map((m) => m[1]);
-        await Promise.all(urls.map((u) => cache.add(u).catch(() => undefined)));
+        await Promise.all([...urls, ...SHELL].map((u) => cache.add(u).catch(() => undefined)));
       }
     } catch {
       // Offline during install: pages get saved as they are used instead

@@ -123,6 +123,14 @@ export function SalesManager() {
   const [storeDetails, setStoreDetails] = useState<StoreDetails>(DEFAULT_STORE);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Phones and tablets: don't pop the keyboard up by itself
+  const touchDevice = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+  // The "Scan a barcode" shortcut on the installed app opens the camera straight away
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get('scan') === '1') setScannerOpen(true);
+    } catch { /* ignore */ }
+  }, []);
   const [split, setSplit] = useState<Record<SplitKey, string>>({ cash: "", upi: "", card: "", credit: "" });
   const [heldBills, setHeldBills] = useState<HeldBill[]>(() => readHeld());
   const searchRef = useRef<HTMLInputElement>(null);
@@ -385,19 +393,33 @@ export function SalesManager() {
       || products.find(p => p.sku.trim().toLowerCase() === c);
   };
 
-  const addByCode = (code: string) => {
+  // Short line for the camera screen, for example "Added Maggi · ₹14 (2 in bill)"
+  const cartRef = useRef(cart);
+  cartRef.current = cart;
+  const addedText = (product: Product, qty: number) => {
+    const have = cartRef.current.find(i => i.product.id === product.id)?.quantity || 0;
+    const stock = product.stock_quantity ?? 0;
+    if (Math.round((have + qty) * 1000) / 1000 > stock) return `${product.name}: only ${stock} in stock`;
+    const now = Math.round((have + qty) * 1000) / 1000;
+    return `Added ${product.name} · ₹${product.price.toLocaleString('en-IN')}${now > 1 ? ` (${now} in bill)` : ''}`;
+  };
+
+  const addByCode = (code: string): string | false => {
     const product = findByCode(code);
     if (product) {
+      const text = addedText(product, 1);
       addToCart(product);
-      return true;
+      return text;
     }
     // Label printed by a weighing scale: item code + weight (or price) inside the barcode
     const label = parseScaleBarcode(code, scale);
     const loose = label ? products.find(p => samePlu(p.plu_code, label.plu)) : undefined;
     if (label && loose) {
       const qty = label.grams != null ? label.grams / 1000 : (label.paise || 0) / 100 / (loose.price || 1);
-      addToCart(loose, Math.round(qty * 1000) / 1000);
-      return true;
+      const q = Math.round(qty * 1000) / 1000;
+      const text = addedText(loose, q);
+      addToCart(loose, q);
+      return text;
     }
     toast({ title: "Not found", description: `No product with barcode ${code}`, variant: "destructive" });
     return false;
@@ -932,7 +954,7 @@ export function SalesManager() {
   const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(upiAmount)}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-24 md:pb-0">
       {/* Product Selection */}
       <div className="space-y-6">
         <div>
@@ -942,7 +964,7 @@ export function SalesManager() {
             <div className="flex gap-2">
               <Input
                 ref={searchRef}
-                autoFocus
+                autoFocus={!touchDevice}
                 placeholder="Scan barcode or search by name / SKU"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -974,8 +996,9 @@ export function SalesManager() {
           </div>
           <BarcodeScannerDialog
             open={scannerOpen}
-            onOpenChange={(o) => { setScannerOpen(o); if (!o) setTimeout(() => searchRef.current?.focus(), 50); }}
+            onOpenChange={(o) => { setScannerOpen(o); if (!o && !touchDevice) setTimeout(() => searchRef.current?.focus(), 50); }}
             onDetected={addByCode}
+            summary={cart.length ? `${cart.length} item${cart.length === 1 ? '' : 's'} · ₹${getCartTotals().total.toLocaleString('en-IN')}` : undefined}
           />
           <div className="mt-3">
             <Label>Category</Label>
@@ -1061,7 +1084,7 @@ export function SalesManager() {
       </div>
 
       {/* Cart & Checkout */}
-      <div className="space-y-6">
+      <div className="space-y-6 scroll-mt-4" id="bill">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold">Shopping Cart</h2>
           <Badge variant="secondary">{cart.length} items</Badge>
@@ -1520,6 +1543,24 @@ export function SalesManager() {
           </DialogContent>
         </Dialog>
 
+      </div>
+
+      {/* Phones: bill total always visible, with big Scan and Bill buttons */}
+      <div className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <div className="flex items-center gap-2">
+          <Button type="button" size="lg" variant="outline" className="h-12 gap-2 shrink-0" onClick={() => setScannerOpen(true)} aria-label="Scan with camera">
+            <ScanLine className="h-5 w-5" /> Scan
+          </Button>
+          <Button
+            type="button"
+            size="lg"
+            className="h-12 flex-1 justify-between gap-2"
+            onClick={() => document.getElementById('bill')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            <span className="flex items-center gap-2"><ShoppingCart className="h-5 w-5" /> {cart.length} item{cart.length === 1 ? '' : 's'}</span>
+            <span className="font-bold">₹{getCartTotals().total.toLocaleString('en-IN')}</span>
+          </Button>
+        </div>
       </div>
     </div>
   );
