@@ -1,6 +1,10 @@
 // Small building blocks shared by every report view.
-import type { ReactNode } from "react";
-import { ArrowDownRight, ArrowUpRight, Download, Info, Minus } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ArrowDownRight, ArrowUpRight, Download, FileDown, FileSpreadsheet, FileText, Info, Loader2, Minus, Printer } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -104,10 +108,66 @@ export function Kpi({ k, label, value, now, before, money = true, lowerIsBetter,
   ) : <Card>{body}</Card>;
 }
 
+type CsvExport = { filename: string; rows: Record<string, unknown>[]; meta: string[]; all?: () => Promise<Record<string, unknown>[]> };
+
+/**
+ * Download or print what a table shows: CSV, Excel, PDF or print, each with
+ * the report's title, dates, store and filters on top. When the table is paged
+ * on the server, `all` fetches every row so the file isn't just one page.
+ */
+export function ExportMenu({ title, csv }: { title: string; csv: CsvExport }) {
+  const [busy, setBusy] = useState(false);
+  const run = async (kind: "csv" | "xlsx" | "pdf" | "print", whole: boolean) => {
+    setBusy(true);
+    try {
+      const rows = whole && csv.all ? await csv.all() : csv.rows;
+      const meta = whole && csv.all ? csv.meta.filter((m) => !/^Rows \d+ to \d+ of/.test(m)).concat(`All ${rows.length} rows`) : csv.meta;
+      const t = { name: csv.filename.replace(/\.csv$/i, ""), meta, rows };
+      if (kind === "csv") downloadCsv(csv.filename, rows, meta);
+      else if (kind === "xlsx") (await import("@/lib/export/xlsx")).downloadXlsx(t);
+      else if (kind === "pdf") await (await import("@/lib/export/pdf")).downloadPdf(t);
+      else (await import("@/lib/export/print")).printTable(t);
+    } catch (e) {
+      const f = friendlyError(e, "Couldn't export");
+      toast({ title: f.title, description: f.description, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const items = (whole: boolean) => (
+    <>
+      <DropdownMenuItem onSelect={() => run("xlsx", whole)}><FileSpreadsheet className="h-4 w-4 mr-2" />Excel (.xlsx)</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => run("csv", whole)}><FileText className="h-4 w-4 mr-2" />CSV</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => run("pdf", whole)}><FileDown className="h-4 w-4 mr-2" />PDF</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => run("print", whole)}><Printer className="h-4 w-4 mr-2" />Print</DropdownMenuItem>
+    </>
+  );
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="ghost" className="gap-1 h-8" disabled={busy} aria-label={`Export ${title}`}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} <span className="hidden sm:inline">Export</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {csv.all ? (
+          <>
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">This page</DropdownMenuLabel>
+            {items(false)}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">All rows</DropdownMenuLabel>
+            {items(true)}
+          </>
+        ) : items(false)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** A titled card for a chart or table, with an optional CSV download of exactly what it shows. */
 export function Section({ title, description, children, csv, className, actions }: {
   title: string; description?: string; children: ReactNode; className?: string; actions?: ReactNode;
-  csv?: { filename: string; rows: Record<string, unknown>[]; meta: string[] };
+  csv?: CsvExport;
 }) {
   return (
     <Card className={className}>
@@ -118,11 +178,7 @@ export function Section({ title, description, children, csv, className, actions 
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {actions}
-          {csv && csv.rows.length > 0 && (
-            <Button size="sm" variant="ghost" className="gap-1 h-8" onClick={() => downloadCsv(csv.filename, csv.rows, csv.meta)} aria-label={`Download ${title} as CSV`}>
-              <Download className="h-4 w-4" /> <span className="hidden sm:inline">CSV</span>
-            </Button>
-          )}
+          {csv && csv.rows.length > 0 && <ExportMenu title={title} csv={csv} />}
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">{children}</CardContent>

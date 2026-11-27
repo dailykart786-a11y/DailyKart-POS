@@ -14,7 +14,7 @@ import { inrShort } from "@/lib/dashboard";
 import { ExploreGroup, ExploreRow, FilterOptions, reportFilterOptions, reportSalesExplore } from "@/lib/reports/api";
 import { addDays, rangeLabel } from "@/lib/reports/dates";
 import { DRILL_NEXT, ExploreState, GROUP_LABEL, readExplore, writeExplore } from "@/lib/reports/explore";
-import { ReportCtx, csvMeta, csvName, useReportData } from "./context";
+import { ReportCtx, allPages, csvMeta, csvName, useReportData } from "./context";
 import { CHART_COLORS, Kpi, Loaded, METHOD_LABEL, NoData, Section, changeOf, fmtBucket, inr, num, pct } from "./shared";
 import { Pager } from "./paging";
 import { NeedsUpdate as Needs, useMissing } from "./missing";
@@ -222,7 +222,11 @@ export function SalesExplorer({ ctx }: { ctx: ReportCtx }) {
                     `Rows ${page * pageSize + 1} to ${page * pageSize + x.rows.length} of ${x.total}`]),
                   rows: x.rows.map((r) => ({ [x.group]: rowLabel(x.group, r), bills: r.bills, units: r.units, net_sales: r.net_sales, share_pct: r.share ?? "",
                     returns: r.returns, gst: r.gst, gross_profit: r.profit, margin_pct: r.margin ?? "", sales_without_saved_cost: r.cost_missing_value,
-                    ...(showPrev ? { net_sales_before: r.prev_net_sales ?? 0, gross_profit_before: r.prev_profit ?? 0 } : {}) })) }}>
+                    ...(showPrev ? { net_sales_before: r.prev_net_sales ?? 0, gross_profit_before: r.prev_profit ?? 0 } : {}) })),
+                  all: x.total > x.rows.length ? allPages((limit, offset) => reportSalesExplore(range.from, range.to, ctx.storeId, s.group, s, compare, { sort, limit, offset }),
+                    (r: ExploreRow) => ({ [x.group]: rowLabel(x.group, r), bills: r.bills, units: r.units, net_sales: r.net_sales, share_pct: r.share ?? "",
+                      returns: r.returns, gst: r.gst, gross_profit: r.profit, margin_pct: r.margin ?? "", sales_without_saved_cost: r.cost_missing_value,
+                      ...(showPrev ? { net_sales_before: r.prev_net_sales ?? 0, gross_profit_before: r.prev_profit ?? 0 } : {}) })) : undefined }}>
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead className="min-w-[140px]">{GROUP_LABEL[x.group]}</TableHead><TableHead className={R}>Bills</TableHead>

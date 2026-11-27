@@ -13,7 +13,7 @@ import {
   InventoryRow, PurchaseBy, StockFilter, reportExpiry, reportInventory, reportPurchases, reportStockMovement,
 } from "@/lib/reports/api";
 import { rangeLabel } from "@/lib/reports/dates";
-import { ReportCtx, csvMeta, csvName, useReportData } from "./context";
+import { ReportCtx, allPages, csvMeta, csvName, useReportData } from "./context";
 import { CHART_COLORS, Kpi, Loaded, NoData, Section, inr, num } from "./shared";
 import { Pager, useDebounced } from "./paging";
 import { NeedsUpdate as Needs, useMissing } from "./missing";
@@ -154,6 +154,10 @@ export function StockReport({ ctx, mode }: { ctx: ReportCtx; mode: "valuation" |
                     [`Show: ${statusLabel}`, "Stock as of now, valued at latest purchase cost", `Rows ${page * size + 1} to ${page * size + inv.rows.length} of ${inv.total}`, ...(q ? [`Search: ${q}`] : []), ...(category !== "all" ? [`Category: ${category}`] : [])]),
                     rows: inv.rows.map((r: InventoryRow) => ({ product: r.name, sku: r.sku, barcode: r.barcode, category: r.category, stock: r.stock, min_level: r.min_level, status: STATUS_LABEL[r.stock_status],
                       cost_price: r.cost, value_at_cost: r.value_cost, mrp_or_price: r.mrp ?? r.price, value_at_mrp: r.value_mrp, units_sold: r.sold_units, units_returned: r.returned_units,
+                      sales_ex_gst: r.revenue, avg_per_day: r.avg_daily, days_of_stock: r.days_cover ?? "", movement: MOVEMENT_LABEL[r.movement], last_sold: r.last_sold_at ?? "", last_purchased: r.last_purchased_at ?? "" })), all: allPages((limit, offset) => reportInventory(ctx.range.from, ctx.range.to, ctx.storeId, {
+      search: q || null, category: category === "all" ? null : category, status, sort, dir, limit, offset,
+    }), (r: InventoryRow) => ({ product: r.name, sku: r.sku, barcode: r.barcode, category: r.category, stock: r.stock, min_level: r.min_level, status: STATUS_LABEL[r.stock_status],
+                      cost_price: r.cost, value_at_cost: r.value_cost, mrp_or_price: r.mrp ?? r.price, value_at_mrp: r.value_mrp, units_sold: r.sold_units, units_returned: r.returned_units,
                       sales_ex_gst: r.revenue, avg_per_day: r.avg_daily, days_of_stock: r.days_cover ?? "", movement: MOVEMENT_LABEL[r.movement], last_sold: r.last_sold_at ?? "", last_purchased: r.last_purchased_at ?? "" })) }}>
                   <Table>
                     <TableHeader><TableRow>
@@ -248,6 +252,7 @@ export function StockExpiry({ ctx }: { ctx: ReportCtx }) {
                   <Section title="Batches" description="Pieces left is an estimate: it assumes the earliest expiry is sold first. Clear a batch on the Stock page once it's gone."
                     csv={{ filename: `dailykart-expiry-${ex.as_of}.csv`, meta: csvMeta(ctx, "Expiry", [`As of ${ex.as_of}, expired or expiring within ${ex.days} days`, "Pieces left estimated: earliest expiry sold first", `Rows ${page * size + 1} to ${page * size + ex.rows.length} of ${ex.total}`]),
                       rows: ex.rows.map((r) => ({ product: r.name, sku: r.sku, category: r.category, batch: r.batch_no, expiry: r.expiry_date, days_left: r.days_left,
+                        batch_qty: r.batch_qty, stock_now: r.stock, pieces_left_est: r.qty_left, cost_price: r.cost, value_at_cost: r.value_cost, value_at_mrp: r.value_mrp })), all: allPages((limit, offset) => reportExpiry(ctx.storeId, days, { search: q || null, limit, offset }), (r) => ({ product: r.name, sku: r.sku, category: r.category, batch: r.batch_no, expiry: r.expiry_date, days_left: r.days_left,
                         batch_qty: r.batch_qty, stock_now: r.stock, pieces_left_est: r.qty_left, cost_price: r.cost, value_at_cost: r.value_cost, value_at_mrp: r.value_mrp })) }}>
                     <Table>
                       <TableHeader><TableRow>
@@ -378,6 +383,7 @@ export function StockMovementReport({ ctx }: { ctx: ReportCtx }) {
                 actions={type !== "all" ? <Button size="sm" variant="ghost" className="h-8" onClick={() => setType("all")}>Show all</Button> : undefined}
                 csv={{ filename: csvName(ctx, "stock-movement"), meta: csvMeta(ctx, "Stock movement", [`Type: ${type === "all" ? "All" : TYPE_LABEL[type] ?? type}`, `Rows ${page * size + 1} to ${page * size + mv.rows.length} of ${mv.total}`, ...(q ? [`Search: ${q}`] : [])]),
                   rows: mv.rows.map((r) => ({ when: r.created_at, product: r.name, sku: r.sku, type: TYPE_LABEL[r.movement_type] ?? r.movement_type, reason: r.note ? REASON_LABEL[r.note] ?? r.note : "",
+                    change: r.quantity_change, before: r.stock_before, after: r.stock_after, unit_cost: r.unit_cost ?? "", value: r.value, by: r.by_name ?? "" })), all: allPages((limit, offset) => reportStockMovement(ctx.range.from, ctx.range.to, ctx.storeId, { type: type === "all" ? null : type, search: q || null, limit, offset }), (r) => ({ when: r.created_at, product: r.name, sku: r.sku, type: TYPE_LABEL[r.movement_type] ?? r.movement_type, reason: r.note ? REASON_LABEL[r.note] ?? r.note : "",
                     change: r.quantity_change, before: r.stock_before, after: r.stock_after, unit_cost: r.unit_cost ?? "", value: r.value, by: r.by_name ?? "" })) }}>
                 {mv.total === 0 ? <p className="text-sm text-muted-foreground py-4">No {TYPE_LABEL[type]?.toLowerCase() ?? ""} entries in these dates.</p> : (
                   <>
@@ -482,6 +488,14 @@ export function PurchaseReport({ ctx, fixedBy }: { ctx: ReportCtx; fixedBy?: Pur
                     description={isProduct ? "Quantity includes free pieces. Average cost is per paid piece; cost per piece spreads the bill over free pieces too. Without GST unless marked." : "Supplier bill date. Payments and returns are by the date they were recorded."}
                     csv={{ filename: csvName(ctx, `purchases-${by}`), meta: csvMeta(ctx, `Purchases ${title.toLowerCase()}`, [`Rows ${page * size + 1} to ${page * size + pu.rows.length} of ${pu.total}`, ...(q ? [`Search: ${q}`] : [])]),
                       rows: pu.rows.map((r) => by === "supplier"
+                        ? { supplier: r.label, bills: r.bills, without_gst: r.taxable, gst: r.tax, total: r.total, returns: r.returns_total, net: r.net_total, paid_in_dates: r.paid, owed_now: r.balance_now ?? "", last_bill: r.last_bill_date }
+                        : by === "bill"
+                          ? { bill_date: r.bill_date, bill_number: r.bill_number ?? "", supplier: r.label, lines: r.lines, without_gst: r.taxable, gst: r.tax, total: r.total }
+                          : by === "category"
+                            ? { category: r.label, products: r.products, lines: r.lines, quantity: r.qty, free: r.free_qty, without_gst: r.taxable, gst: r.tax, total: r.total }
+                            : { product: r.label, sku: r.sku, category: r.category, lines: r.lines, quantity: r.qty, free: r.free_qty, damaged: r.damaged_qty, without_gst: r.taxable, gst: r.tax, total: r.total,
+                                avg_cost: r.avg_cost ?? "", cost_per_piece: r.cost_per_piece ?? "", min_cost: r.min_cost, max_cost: r.max_cost, first_cost: r.first_cost, last_cost: r.last_cost,
+                                cost_change_pct: r.cost_change_pct ?? "", cost_now: r.cost_now, last_bill: r.last_bill_date }), all: allPages((limit, offset) => reportPurchases(ctx.range.from, ctx.range.to, ctx.storeId, by, { search: q || null, limit, offset }), (r) => by === "supplier"
                         ? { supplier: r.label, bills: r.bills, without_gst: r.taxable, gst: r.tax, total: r.total, returns: r.returns_total, net: r.net_total, paid_in_dates: r.paid, owed_now: r.balance_now ?? "", last_bill: r.last_bill_date }
                         : by === "bill"
                           ? { bill_date: r.bill_date, bill_number: r.bill_number ?? "", supplier: r.label, lines: r.lines, without_gst: r.taxable, gst: r.tax, total: r.total }

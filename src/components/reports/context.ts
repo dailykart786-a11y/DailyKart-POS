@@ -63,3 +63,24 @@ export async function both<A, B>(a: Promise<ReportResult<A>>, b: Promise<ReportR
   if (rb && rb.status !== "ok") return rb;
   return { status: "ok", data: { a: ra.data, b: rb ? (rb as { data: B }).data : null } };
 }
+
+/**
+ * For "Export all rows" on a table paged on the server: fetches every page
+ * (500 at a time, up to 20,000 rows) and maps it the same way as the page.
+ */
+export function allPages<R>(
+  load: (limit: number, offset: number) => Promise<ReportResult<{ rows: R[] }>>,
+  map: (r: R) => Record<string, unknown>,
+): () => Promise<Record<string, unknown>[]> {
+  return async () => {
+    const out: Record<string, unknown>[] = [];
+    for (let offset = 0; offset < 20000; offset += 500) {
+      const r = await load(500, offset);
+      if (r.status === "error") throw r.error;
+      if (r.status !== "ok") throw new Error("This report needs the database update.");
+      out.push(...r.data.rows.map(map));
+      if (r.data.rows.length < 500) break;
+    }
+    return out;
+  };
+}

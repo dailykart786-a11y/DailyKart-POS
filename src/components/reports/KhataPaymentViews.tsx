@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { inrShort } from "@/lib/dashboard";
 import { AgeingFilter, AgeingRow, reportKhataAgeing, reportKhataStatement, reportPaymentRegister, reportRegisters } from "@/lib/reports/api";
 import { rangeLabel } from "@/lib/reports/dates";
-import { ReportCtx, csvMeta, csvName, useReportData } from "./context";
+import { ReportCtx, allPages, csvMeta, csvName, useReportData } from "./context";
 import { Kpi, Loaded, METHOD_LABEL, NoData, Section, fmtBucket, inr, num } from "./shared";
 import { Pager, useDebounced } from "./paging";
 import { NeedsUpdate as Needs, useMissing } from "./missing";
@@ -110,6 +110,8 @@ export function KhataAgeing({ ctx }: { ctx: ReportCtx }) {
                 <Section title={label} description="Amount owed now, split by how old it is. Tap a customer for their khata statement."
                   csv={{ filename: `dailykart-khata-ageing-${ag.as_of}.csv`, meta: csvMeta(ctx, "Khata ageing", [`As of ${ag.as_of}`, `Show: ${label}`, "Payments clear the oldest bill first", `Rows ${page * size + 1} to ${page * size + ag.rows.length} of ${ag.total}`, ...(q ? [`Search: ${q}`] : [])]),
                     rows: ag.rows.map((r) => ({ customer: r.name, phone: r.phone, group: r.customer_group ?? "", owes: r.balance, days_0_7: r.d0_7, days_8_15: r.d8_15, days_16_30: r.d16_30,
+                      days_31_60: r.d31_60, over_60_days: r.d60_plus, past_credit_days: r.overdue, oldest_due_days: r.oldest_age ?? "", credit_days: r.credit_days ?? "", credit_limit: r.credit_limit ?? "",
+                      last_payment: r.last_payment_at ?? "" })), all: allPages((limit, offset) => reportKhataAgeing(ctx.storeId, { search: q || null, bucket, sort, dir, limit, offset }), (r) => ({ customer: r.name, phone: r.phone, group: r.customer_group ?? "", owes: r.balance, days_0_7: r.d0_7, days_8_15: r.d8_15, days_16_30: r.d16_30,
                       days_31_60: r.d31_60, over_60_days: r.d60_plus, past_credit_days: r.overdue, oldest_due_days: r.oldest_age ?? "", credit_days: r.credit_days ?? "", credit_limit: r.credit_limit ?? "",
                       last_payment: r.last_payment_at ?? "" })) }}>
                   <Table>
@@ -303,7 +305,7 @@ export function PaymentRegisterView({ ctx }: { ctx: ReportCtx }) {
                   <Section title="Entries" description="Newest first. Tap a method or type above to filter."
                     actions={(method !== "all" || kind !== "all") ? <Button size="sm" variant="ghost" className="h-8" onClick={() => { setMethod("all"); setKind("all"); }}>Show all</Button> : undefined}
                     csv={{ filename: csvName(ctx, "payment-register"), meta: csvMeta(ctx, "Payment register", [`Method: ${method === "all" ? "All" : methodLabel(method)}`, `Type: ${kind === "all" ? "All" : KIND_NAMES[kind]}`, `Rows ${page * size + 1} to ${page * size + pr.rows.length} of ${pr.total}`, ...(q ? [`Search: ${q}`] : [])]),
-                      rows: pr.rows.map((r) => ({ when: r.at, type: KIND_NAMES[r.kind] ?? r.kind, method: methodLabel(r.method), amount: r.amount, reference: r.ref ?? "", party: r.party ?? "", by: r.by_name ?? "" })) }}>
+                      rows: pr.rows.map((r) => ({ when: r.at, type: KIND_NAMES[r.kind] ?? r.kind, method: methodLabel(r.method), amount: r.amount, reference: r.ref ?? "", party: r.party ?? "", by: r.by_name ?? "" })), all: allPages((limit, offset) => reportPaymentRegister(ctx.range.from, ctx.range.to, ctx.storeId, { method: method === "all" ? null : method, kind: kind === "all" ? null : kind, search: q || null, limit, offset }), (r) => ({ when: r.at, type: KIND_NAMES[r.kind] ?? r.kind, method: methodLabel(r.method), amount: r.amount, reference: r.ref ?? "", party: r.party ?? "", by: r.by_name ?? "" })) }}>
                     {pr.total === 0 ? <p className="text-sm text-muted-foreground py-4">Nothing matches these filters.</p> : (
                       <>
                         <Table>
@@ -383,6 +385,9 @@ export function RegisterVariance({ ctx }: { ctx: ReportCtx }) {
             <Section title="Sessions" description="Expected cash = opening cash + cash sales + cash khata payments − cash refunds, supplier and expense payments from the till. UPI and card are shown where they were counted at closing."
               csv={{ filename: csvName(ctx, "register-sessions"), meta: csvMeta(ctx, "Register sessions", [`Rows ${page * size + 1} to ${page * size + rg.rows.length} of ${rg.total}`]),
                 rows: rg.rows.map((r) => ({ staff: r.cashier ?? "", opened: r.opened_at, closed: r.closed_at ?? "open", opening_cash: r.opening_cash, bills: r.bills ?? "", sales: r.total_sales ?? "",
+                  expected_cash: r.expected_cash ?? "", counted_cash: r.counted_cash ?? "", cash_difference: r.difference ?? "",
+                  upi_expected: r.upi_expected ?? "", upi_counted: r.upi_counted ?? "", upi_difference: r.upi_diff ?? "",
+                  card_expected: r.card_expected ?? "", card_counted: r.card_counted ?? "", card_difference: r.card_diff ?? "", note: r.note ?? "" })), all: allPages((limit, offset) => reportRegisters(ctx.range.from, ctx.range.to, ctx.storeId, { limit, offset }), (r) => ({ staff: r.cashier ?? "", opened: r.opened_at, closed: r.closed_at ?? "open", opening_cash: r.opening_cash, bills: r.bills ?? "", sales: r.total_sales ?? "",
                   expected_cash: r.expected_cash ?? "", counted_cash: r.counted_cash ?? "", cash_difference: r.difference ?? "",
                   upi_expected: r.upi_expected ?? "", upi_counted: r.upi_counted ?? "", upi_difference: r.upi_diff ?? "",
                   card_expected: r.card_expected ?? "", card_counted: r.card_counted ?? "", card_difference: r.card_diff ?? "", note: r.note ?? "" })) }}>

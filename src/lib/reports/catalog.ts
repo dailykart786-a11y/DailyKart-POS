@@ -27,7 +27,7 @@ export const CATEGORIES: ReportCategory[] = [
       { id: "sales.cashier", title: "Cashier-wise sales", about: "Bills, sales, discounts and returns handled by each staff member." },
       { id: "sales.returns", title: "Returns and discounts", about: "How much was given away in discounts and taken back in returns." },
       { id: "sales.credit", title: "Udhaar (credit) sales", about: "Bills put on khata versus paid now, and udhaar collected." },
-      { id: "sales.invoices", title: "Invoice-wise sales", about: "Every bill with its customer, cashier and payment.", phase: 8 },
+      { id: "sales.invoices", title: "Invoice-wise sales", about: "Every bill with its customer, staff, payment, GST and returns. Search, filter, open a bill, export all of them." },
     ],
   },
   {

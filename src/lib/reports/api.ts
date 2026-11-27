@@ -66,7 +66,7 @@ export interface ExpenseReport {
   by_method: { method: string; amount: number; count: number }[];
 }
 
-const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by|^ref|^kind|^bucket|^cashier|^party|^note|^phone|^hsn|^description|^job_title|^group|^cmp_from|^cmp_to)$/;
+const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by|^ref|^kind|^bucket|^cashier|^party|^note|^phone|^hsn|^description|^job_title|^group|^cmp_from|^cmp_to|^invoice_number|^customer_name|^status|^return_number|^refund_method|^reason)$/;
 
 /** Postgres numeric arrives as text; turn the number fields into numbers. */
 export function toNumbers<T>(v: T): T {
@@ -397,3 +397,32 @@ export const reportSalesExplore = (
 
 export const reportFilterOptions = (locationId: string | null) =>
   call<FilterOptions>("report_filter_options", { p_location_id: locationId });
+
+// ---------------------------------------------------------------- Phase 8: invoice-wise sales
+export type InvoiceStatus = "all" | "completed" | "cancelled" | "returned" | "credit";
+export interface InvoiceRow {
+  id: string; invoice_number: string; created_at: string; customer_id: string | null; customer_name: string | null; phone: string | null;
+  cashier: string | null; method: string; payment_split: Record<string, number> | null; status: string; interstate: boolean;
+  lines: number; units: number; taxable: number; gst: number; discount: number; billed: number; credit: number; returned: number;
+}
+export interface InvoiceReport {
+  total: number;
+  totals: { bills: number; cancelled: number; billed: number; taxable: number; gst: number; discount: number; credit: number; returned: number; units: number; customers: number };
+  rows: InvoiceRow[];
+}
+export interface InvoiceLines {
+  lines: { name: string; sku: string | null; hsn: string | null; qty: number; unit_price: number; discount_pct: number; gst_rate: number; gst: number; taxable: number; total: number; returned_qty: number }[];
+  returns: { return_number: string; created_at: string; refund_method: string | null; refund_amount: number; reason: string | null }[];
+}
+
+export const reportInvoices = (
+  from: string, to: string, locationId: string | null,
+  opts: Page & { method?: string | null; cashierId?: string | null; customerId?: string | null; status?: InvoiceStatus; sort?: string; dir?: "asc" | "desc" } = {},
+) =>
+  call<InvoiceReport>("report_invoices", {
+    p_from: from, p_to: to, p_location_id: locationId, p_search: opts.search ?? null, p_method: opts.method ?? null,
+    p_cashier_id: opts.cashierId ?? null, p_customer_id: opts.customerId ?? null, p_status: opts.status ?? "all",
+    p_sort: opts.sort ?? "date", p_dir: opts.dir ?? "desc", p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });
+
+export const reportInvoiceLines = (saleId: string) => call<InvoiceLines>("report_invoice_lines", { p_sale_id: saleId });

@@ -21,6 +21,7 @@ import { ExpenseSummary, ExpenseTrend, PLStatement, PLTrend } from "@/components
 import { CustomerAnalysis, ProductPerformance } from "@/components/reports/ProductCustomerViews";
 import { ExploreState, writeExplore } from "@/lib/reports/explore";
 import { SalesExplorer } from "@/components/reports/ExploreView";
+import { InvoiceReportView } from "@/components/reports/InvoiceView";
 import { GstSummary, StaffPerformance } from "@/components/reports/GstStaffViews";
 import { KhataAgeing, PaymentRegisterView, RegisterVariance } from "@/components/reports/KhataPaymentViews";
 import { PurchaseReport, StockExpiry, StockMovementReport, StockReport } from "@/components/reports/StockPurchaseViews";
@@ -32,6 +33,7 @@ import { COMPARE, CompareKey, PRESETS, PresetKey, Range, compareRange, presetRan
 const VIEWS: Record<string, (p: { ctx: ReportCtx }) => JSX.Element> = {
   "sales.summary": SalesSummary,
   "sales.explore": SalesExplorer,
+  "sales.invoices": InvoiceReportView,
   "sales.hourly": SalesHourly,
   "sales.weekday": SalesWeekday,
   "sales.payments": SalesPayments,

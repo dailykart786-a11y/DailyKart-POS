@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { inrShort } from "@/lib/dashboard";
 import { reportBreakdown, reportCustomers, reportProducts } from "@/lib/reports/api";
-import { ReportCtx, csvMeta, csvName, useReportData } from "./context";
+import { ReportCtx, allPages, csvMeta, csvName, useReportData } from "./context";
 import { Kpi, Loaded, NoData, Section, inr, num, pct } from "./shared";
 import { Pager, useDebounced } from "./paging";
 
@@ -85,6 +85,8 @@ export function ProductPerformance({ ctx, defaultSort = "revenue" }: { ctx: Repo
                 csv={{ filename: csvName(ctx, "products"), meta: csvMeta(ctx, "Product performance", ["Without GST", `Rows ${page * size + 1} to ${page * size + pr.rows.length} of ${pr.total}`, ...(q ? [`Search: ${q}`] : []), ...(category !== "all" ? [`Category: ${category}`] : [])]),
                   rows: pr.rows.map((r) => ({ product: r.name, sku: r.sku, barcode: r.barcode, category: r.category, units_sold: r.units, sales: r.revenue, discount: r.discount,
                     returned_qty: r.returned_qty, returns: r.returned_value, net_sales: r.net_revenue, cost: r.cogs ?? "", gross_profit: r.profit ?? "", margin_pct: r.margin ?? "",
+                    stock_now: r.stock_quantity, cost_price_now: r.cost_price, selling_price: r.price, mrp: r.mrp })), all: allPages((limit, offset) => reportProducts(ctx.range.from, ctx.range.to, ctx.storeId, { search: q || null, category: category === "all" ? null : category, sort, dir, limit, offset }), (r) => ({ product: r.name, sku: r.sku, barcode: r.barcode, category: r.category, units_sold: r.units, sales: r.revenue, discount: r.discount,
+                    returned_qty: r.returned_qty, returns: r.returned_value, net_sales: r.net_revenue, cost: r.cogs ?? "", gross_profit: r.profit ?? "", margin_pct: r.margin ?? "",
                     stock_now: r.stock_quantity, cost_price_now: r.cost_price, selling_price: r.price, mrp: r.mrp })) }}>
                 <Table>
                   <TableHeader><TableRow>
@@ -157,7 +159,7 @@ export function CustomerAnalysis({ ctx }: { ctx: ReportCtx }) {
               {c.total === 0 ? <NoData title={q ? "No customers match" : "No named customers bought in these dates"} description="Bills without a customer are counted as walk-in." /> : (
                 <Section title="Customers" description='Spend includes GST, after refunds. "New" means their first ever bill falls in these dates.'
                   csv={{ filename: csvName(ctx, "customers"), meta: csvMeta(ctx, "Customer analysis", ["Spend includes GST", `Rows ${page * size + 1} to ${page * size + c.rows.length} of ${c.total}`]),
-                    rows: c.rows.map((r) => ({ customer: r.name, phone: r.phone, bills: r.bills, spent: r.spend, refunds: r.refunds, net_spent: r.net_spend, avg_bill: r.avg_bill ?? "", new_in_period: r.is_new ? "yes" : "no", owes_now: r.due, loyalty_points: r.loyalty_points ?? "" })) }}>
+                    rows: c.rows.map((r) => ({ customer: r.name, phone: r.phone, bills: r.bills, spent: r.spend, refunds: r.refunds, net_spent: r.net_spend, avg_bill: r.avg_bill ?? "", new_in_period: r.is_new ? "yes" : "no", owes_now: r.due, loyalty_points: r.loyalty_points ?? "" })), all: allPages((limit, offset) => reportCustomers(ctx.range.from, ctx.range.to, ctx.storeId, { search: q || null, sort, dir: "desc", limit, offset }), (r) => ({ customer: r.name, phone: r.phone, bills: r.bills, spent: r.spend, refunds: r.refunds, net_spent: r.net_spend, avg_bill: r.avg_bill ?? "", new_in_period: r.is_new ? "yes" : "no", owes_now: r.due, loyalty_points: r.loyalty_points ?? "" })) }}>
                   <Table>
                     <TableHeader><TableRow>
                       <TableHead>Customer</TableHead><TableHead className={R}>Bills</TableHead><TableHead className={R}>Spent</TableHead>
