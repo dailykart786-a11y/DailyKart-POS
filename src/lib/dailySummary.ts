@@ -75,7 +75,7 @@ export async function fetchDailySummary(date: string, storeId: string | null): P
       return q.range(a, b);
     }),
     pages<any>((a, b) => inStore(supabase.from("sale_returns" as any).select("refund_amount"), storeId).gte("created_at", from).lt("created_at", to).range(a, b)),
-    pages<any>((a, b) => inStore(supabase.from("expenses").select("amount"), storeId).eq("date", date).range(a, b)),
+    pages<any>((a, b) => inStore(supabase.from("expenses").select("*"), storeId).eq("date", date).range(a, b)),
     pages<any>((a, b) => inStore(supabase.from("customer_payments" as any).select("amount"), storeId).gte("created_at", from).lt("created_at", to).range(a, b)),
     pages<any>((a, b) => inStore(supabase.from("products").select("stock_quantity, min_stock_level").eq("is_active", true), storeId).range(a, b)),
   ]);
@@ -97,7 +97,7 @@ export async function fetchDailySummary(date: string, storeId: string | null): P
     udhaarGiven: r2(udhaar),
     khataReceived: r2(khata.rows.reduce((s, x) => s + Number(x.amount || 0), 0)),
     returns: r2(returns.rows.reduce((s, x) => s + Number(x.refund_amount || 0), 0)),
-    expenses: r2(expenses.rows.reduce((s, x) => s + Number(x.amount || 0), 0)),
+    expenses: r2(expenses.rows.filter((x) => !x.status || x.status === "approved").reduce((s, x) => s + Number(x.amount || 0), 0)),
     topItems: Object.values(top).sort((a, b) => b.amount - a.amount).slice(0, 5).map((t) => ({ ...t, amount: r2(t.amount) })),
     lowStock: products.rows.filter((p) => Number(p.stock_quantity || 0) <= Number(p.min_stock_level || 0)).length,
   };
