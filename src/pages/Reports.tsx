@@ -226,7 +226,7 @@ export default function Reports() {
       .gte('date', startDate.toISOString().split('T')[0])
       .lte('date', endDate.toISOString().split('T')[0]);
 
-    const expenseByCategory = expenses?.reduce((acc: any, expense) => {
+    const expenseByCategory = expenses?.filter((e: any) => !e.status || e.status === 'approved').reduce((acc: any, expense) => {
       const category = expense.category;
       if (!acc[category]) {
         acc[category] = { category, amount: 0 };

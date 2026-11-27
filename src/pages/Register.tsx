@@ -16,7 +16,7 @@ import { DailySummaryCard } from "@/components/DailySummaryCard";
 
 interface Totals {
   bills: number; total_sales: number; cash_sales: number; upi_sales: number; card_sales: number; credit_sales: number;
-  khata_cash_received: number; khata_upi_received: number; cash_refunds: number; supplier_cash_paid: number;
+  khata_cash_received: number; khata_upi_received: number; cash_refunds: number; supplier_cash_paid: number; expense_cash_paid?: number; bank_sales?: number;
 }
 interface Status { session: { id: string; opened_at: string; opening_cash: number }; totals: Totals; expected_cash: number; }
 interface Closed {
@@ -140,11 +140,13 @@ export default function Register() {
                   ["Cash sales", rupees(t?.cash_sales)],
                   ["UPI sales", rupees(t?.upi_sales)],
                   ["Card sales", rupees(t?.card_sales)],
+                  ...(t?.bank_sales ? [["Bank transfer sales", rupees(t.bank_sales)]] : []),
                   ["Udhaar given", rupees(t?.credit_sales)],
                   ["Khata cash received", rupees(t?.khata_cash_received)],
                   ["Khata UPI received", rupees(t?.khata_upi_received)],
                   ["Cash refunds", `- ${rupees(t?.cash_refunds)}`],
                   ["Cash paid to suppliers", `- ${rupees(t?.supplier_cash_paid)}`],
+                  ...(t?.expense_cash_paid ? [["Expenses paid from till", `- ${rupees(t.expense_cash_paid)}`]] : []),
                 ] as [string, string][]).map(([k, v]) => (
                   <div key={k} className="flex justify-between"><span className="text-muted-foreground">{k}</span><span>{v}</span></div>
                 ))}
