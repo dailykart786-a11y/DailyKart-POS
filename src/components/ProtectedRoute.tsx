@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { TwoStepGate } from '@/components/TwoStepGate';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -20,5 +21,5 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/auth" replace />;
   }
 
-  return <>{children}</>;
+  return <TwoStepGate userId={user.id}>{children}</TwoStepGate>;
 }
