@@ -18,10 +18,12 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Batch, BatchLeft, batchesWithLeft, daysUntil } from "@/lib/batches";
+import { isLoose, looseUnit } from "@/lib/scale";
 
 interface Product {
   id: string; name: string; sku: string; barcode: string | null; category: string | null;
   cost_price: number; stock_quantity: number; min_stock_level: number; base_unit: string | null;
+  sold_by?: string | null; // newer database only
 }
 interface LastBuy { supplier: string; cost: number; date: string; }
 interface Adjustment {
@@ -73,7 +75,7 @@ export default function Stock() {
 
   const load = async () => {
     const pRes = await inStore(
-      supabase.from("products").select("id, name, sku, barcode, category, cost_price, stock_quantity, min_stock_level, base_unit").eq("is_active", true),
+      supabase.from("products").select("*").eq("is_active", true),
       filterStoreId,
     ).order("name");
     const list = ((pRes.data || []) as any[]).map((p) => ({
@@ -243,14 +245,18 @@ export default function Stock() {
     setQty(mode === "set" ? String(p.stock_quantity) : "");
   };
 
-  const n = parseInt(qty, 10);
+  // loose goods (kg / L) can be counted in parts, up to 3 decimals
+  const loose = isLoose(product?.sold_by);
+  const n = loose ? Math.round(parseFloat(qty) * 1000) / 1000 : parseInt(qty, 10);
   const newStock = product && Number.isFinite(n)
-    ? (mode === "set" ? n : mode === "add" ? product.stock_quantity + n : product.stock_quantity - n)
+    ? Math.round((mode === "set" ? n : mode === "add" ? product.stock_quantity + n : product.stock_quantity - n) * 1000) / 1000
     : null;
 
   const save = async () => {
     if (!product) { toast({ title: "Pick a product", variant: "destructive" }); return; }
-    if (!Number.isFinite(n) || n < 0 || String(n) !== qty.trim()) { toast({ title: "Enter a whole number", variant: "destructive" }); return; }
+    if (loose) {
+      if (!Number.isFinite(n) || n < 0 || !/^\d*\.?\d{0,3}$/.test(qty.trim())) { toast({ title: "Enter the quantity, like 2.5", variant: "destructive" }); return; }
+    } else if (!Number.isFinite(n) || n < 0 || String(n) !== qty.trim()) { toast({ title: "Enter a whole number", variant: "destructive" }); return; }
     if (newStock === null || newStock < 0) { toast({ title: "Stock can't go below 0", variant: "destructive" }); return; }
     if (newStock === product.stock_quantity) { toast({ title: "No change", description: `${product.name} is already ${product.stock_quantity}` }); return; }
     setBusy(true);
@@ -398,10 +404,10 @@ export default function Stock() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="adj-qty">{mode === "set" ? "Counted quantity" : "Quantity"}</Label>
-                    <Input id="adj-qty" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} />
+                    <Input id="adj-qty" inputMode={loose ? "decimal" : "numeric"} placeholder={loose ? `in ${looseUnit(product?.sold_by)}` : undefined} value={qty} onChange={(e) => setQty(e.target.value)} />
                     {product && newStock !== null && (
                       <div className={`text-xs ${newStock < 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                        New stock: {newStock} ({newStock - product.stock_quantity >= 0 ? "+" : ""}{newStock - product.stock_quantity})
+                        New stock: {newStock} ({newStock - product.stock_quantity >= 0 ? "+" : ""}{Math.round((newStock - product.stock_quantity) * 1000) / 1000})
                       </div>
                     )}
                   </div>

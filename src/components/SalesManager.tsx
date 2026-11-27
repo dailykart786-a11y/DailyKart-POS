@@ -34,6 +34,7 @@ import { Batch, estimateLeft, todayIso } from "@/lib/batches";
 import { Offer, bestOffer, billDiscountPercent, maxPointsForBill, pointsPercent, stackDiscount } from "@/lib/offers";
 import { useUserRole } from "@/hooks/useUserRole";
 import { getReceiptWidth, setReceiptWidth, type ReceiptWidth } from "@/lib/invoice";
+import { isLoose, looseUnit, parseScaleBarcode, samePlu, type ScaleSettings } from "@/lib/scale";
 import {
   buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
   DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
@@ -58,6 +59,9 @@ interface Product {
   image_url: string | null;
   hsn_code?: string | null;
   barcode?: string | null;
+  // loose goods (newer database only)
+  sold_by?: string | null;
+  plu_code?: string | null;
 }
 
 interface Customer {
@@ -133,6 +137,7 @@ export function SalesManager() {
   const [coupon, setCoupon] = useState<{ id: string; code: string; kind: "percent" | "flat"; value: number; min_bill: number | null } | null>(null);
   const [couponInput, setCouponInput] = useState("");
   const [maxDiscountPct, setMaxDiscountPct] = useState<number | null>(null);
+  const [scale, setScale] = useState<ScaleSettings | null>(null);
   const [approval, setApproval] = useState<{ id: string; pct: number } | null>(null);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalPin, setApprovalPin] = useState("");
@@ -149,6 +154,10 @@ export function SalesManager() {
       if (!id || cancelled) return;
       const { data, error } = await supabase.from('locations').select('max_discount_pct' as any).eq('id', id).maybeSingle();
       if (!cancelled && !error) setMaxDiscountPct((data as any)?.max_discount_pct == null ? null : Number((data as any).max_discount_pct));
+      // Weighing-scale labels (optional: needs the database update)
+      const sc = await supabase.from('locations').select('scale_prefix, scale_value, scale_code_digits' as any).eq('id', id).maybeSingle();
+      const row = (sc.data || {}) as any;
+      if (!cancelled) setScale(!sc.error && row.scale_prefix ? { prefix: String(row.scale_prefix), value: row.scale_value === 'price' ? 'price' : 'weight', codeDigits: Number(row.scale_code_digits) || 5 } : null);
     })().catch(() => undefined);
     return () => { cancelled = true; };
   }, [billingStoreFilter, user]);
@@ -345,14 +354,14 @@ export function SalesManager() {
     return () => { cancelled = true; };
   }, [products, billingStoreFilter]);
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, qty = 1) => {
     if (expiredStock[product.id] && !warnedExpired.current.has(product.id)) {
       warnedExpired.current.add(product.id);
       toast({ title: "Check the expiry date", description: `Some ${product.name} expired on ${expiredStock[product.id]}. Give the customer a fresh one.` });
     }
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
-      const nextQty = (existing?.quantity || 0) + 1;
+      const nextQty = Math.round(((existing?.quantity || 0) + qty) * 1000) / 1000;
       const stock = product.stock_quantity ?? 0;
       if (nextQty > stock) {
         toast({
@@ -364,7 +373,7 @@ export function SalesManager() {
       }
       return existing
         ? prev.map(item => item.product.id === product.id ? withOffer({ ...item, quantity: nextQty }) : item)
-        : [...prev, withOffer({ product, quantity: 1, discount: 0 })];
+        : [...prev, withOffer({ product, quantity: nextQty, discount: 0 })];
     });
   };
 
@@ -380,6 +389,14 @@ export function SalesManager() {
     const product = findByCode(code);
     if (product) {
       addToCart(product);
+      return true;
+    }
+    // Label printed by a weighing scale: item code + weight (or price) inside the barcode
+    const label = parseScaleBarcode(code, scale);
+    const loose = label ? products.find(p => samePlu(p.plu_code, label.plu)) : undefined;
+    if (label && loose) {
+      const qty = label.grams != null ? label.grams / 1000 : (label.paise || 0) / 100 / (loose.price || 1);
+      addToCart(loose, Math.round(qty * 1000) / 1000);
       return true;
     }
     toast({ title: "Not found", description: `No product with barcode ${code}`, variant: "destructive" });
@@ -938,6 +955,9 @@ export function SalesManager() {
                     if (findByCode(term)) {
                       addByCode(term);
                       setSearchTerm("");
+                    } else if (parseScaleBarcode(term, scale)) {
+                      // weighing-scale sticker
+                      if (addByCode(term)) setSearchTerm("");
                     } else if (filteredProducts.length === 1) {
                       addToCart(filteredProducts[0]);
                       setSearchTerm("");
@@ -1160,18 +1180,41 @@ export function SalesManager() {
                     <div className="flex-1">
                       <p className="font-medium">{item.product.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        ₹{item.product.price.toLocaleString('en-IN')} each
+                        ₹{item.product.price.toLocaleString('en-IN')} {isLoose(item.product.sold_by) ? `per ${looseUnit(item.product.sold_by)}` : 'each'}
                         {item.offerName && <Badge variant="secondary" className="ml-2">Offer: {item.offerName}</Badge>}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min="1"
-                        value={item.quantity}
-                        onChange={(e) => updateCartQuantity(item.product.id, parseInt(e.target.value))}
-                        className="w-16 text-center"
-                      />
+                      {isLoose(item.product.sold_by) ? (
+                        <>
+                          {/* weight is typed freely (0.750) and taken when the box is left or Enter is pressed */}
+                          <Input
+                            key={`${item.product.id}:${item.quantity}`}
+                            type="number"
+                            min="0.005"
+                            step="0.005"
+                            aria-label={`Quantity of ${item.product.name}`}
+                            defaultValue={item.quantity}
+                            onBlur={(e) => {
+                              const q = Math.round((parseFloat(e.target.value) || 0) * 1000) / 1000;
+                              if (q > 0 && q !== item.quantity) updateCartQuantity(item.product.id, q);
+                              else e.target.value = String(item.quantity);
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                            className="w-20 text-center"
+                          />
+                          <span className="text-xs text-muted-foreground">{looseUnit(item.product.sold_by)}</span>
+                        </>
+                      ) : (
+                        <Input
+                          type="number"
+                          min="1"
+                          aria-label={`Quantity of ${item.product.name}`}
+                          value={item.quantity}
+                          onChange={(e) => updateCartQuantity(item.product.id, parseInt(e.target.value))}
+                          className="w-16 text-center"
+                        />
+                      )}
                       <span className="text-sm text-muted-foreground">×</span>
                       <Input
                         type="number"
