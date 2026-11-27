@@ -83,7 +83,7 @@ function AppFrame({ children }: LayoutProps) {
   return (
     <InShell.Provider value={true}>
     <SidebarProvider open={sidebarOpen} onOpenChange={(o) => { setSidebarOpen(o); saveSidebarOpen(o); }}>
-      <div className="min-h-screen flex w-full">
+      <div className="min-h-[100dvh] flex w-full">
         <AppSidebar />
         
         <div className="flex-1 flex flex-col min-w-0">
@@ -159,7 +159,7 @@ function AppFrame({ children }: LayoutProps) {
           <OfflineStatus />
 
           {/* Main Content */}
-          <main id="main" className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 bg-secondary/30 overflow-auto">
+          <main id="main" className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-[calc(1.5rem+env(safe-area-inset-bottom))] pr-[max(0.75rem,env(safe-area-inset-right))] bg-secondary/30 overflow-auto">
             <PageHeading />
             {children}
           </main>
