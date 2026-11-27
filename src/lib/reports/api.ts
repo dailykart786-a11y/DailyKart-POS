@@ -66,7 +66,7 @@ export interface ExpenseReport {
   by_method: { method: string; amount: number; count: number }[];
 }
 
-const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of)$/;
+const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by)$/;
 
 /** Postgres numeric arrives as text; turn the number fields into numbers. */
 export function toNumbers<T>(v: T): T {
@@ -155,3 +155,97 @@ export const reportBreakdown = (from: string, to: string, locationId: string | n
 
 export const reportPayments = (from: string, to: string, locationId: string | null) =>
   call<PaymentRow[]>("report_breakdown", { p_from: from, p_to: to, p_location_id: locationId, p_by: "payment" });
+
+// ---------------------------------------------------------------- Phase 4: stock and purchases
+// (supabase/migrations/20261127440000_reports_stock_purchases.sql)
+export type StockFilter = "all" | "in" | "low" | "out" | "dead" | "fast" | "slow";
+export type Movement = "fast" | "normal" | "slow" | "dead" | "none";
+
+export interface InventoryRow {
+  product_id: string; name: string; sku: string | null; barcode: string | null; category: string | null;
+  stock: number; min_level: number; cost: number; price: number | null; mrp: number | null;
+  value_cost: number; value_mrp: number; sold_units: number; returned_units: number; revenue: number;
+  avg_daily: number; days_cover: number | null; last_sold_at: string | null; last_purchased_at: string | null;
+  days_since_sale: number | null; stock_status: "ok" | "low" | "out"; movement: Movement;
+}
+export interface InventoryCategory { key: string; label: string; skus: number; stock_units: number; value_cost: number; value_mrp: number; dead_value: number; sold_units: number }
+export interface InventoryReport {
+  days: number; total: number;
+  totals: {
+    skus: number; stock_units: number; value_cost: number; value_mrp: number; out_of_stock: number; low_stock: number;
+    dead: number; dead_value: number; fast: number; slow: number; negative_stock: number; sold_units: number;
+  };
+  categories: InventoryCategory[];
+  rows: InventoryRow[];
+}
+
+export interface ExpiryRow {
+  batch_id: string; product_id: string; name: string; sku: string | null; category: string | null; batch_no: string | null;
+  expiry_date: string; days_left: number; bucket: string; batch_qty: number; stock: number; qty_left: number;
+  cost: number; value_cost: number; value_mrp: number;
+}
+export interface ExpiryReport {
+  as_of: string; days: number; total: number;
+  totals: { batches: number; qty_left: number; value_cost: number; value_mrp: number; empty_batches: number };
+  buckets: { key: string; label: string; batches: number; qty_left: number; value_cost: number }[];
+  rows: ExpiryRow[];
+}
+
+export interface MovementTypeRow { key: string; entries: number; qty_in: number; qty_out: number; value_in: number; value_out: number }
+export interface MovementRow {
+  id: string; created_at: string; product_id: string; name: string; sku: string | null; category: string | null;
+  movement_type: string; note: string | null; quantity_change: number; stock_before: number; stock_after: number;
+  unit_cost: number | null; value: number; source_type: string | null; source_id: string | null; by_name: string | null;
+}
+export interface MovementReport {
+  total: number; by_type: MovementTypeRow[];
+  adjust_reasons: { key: string; entries: number; qty_in: number; qty_out: number; net_value: number }[];
+  rows: MovementRow[];
+}
+
+export type PurchaseBy = "supplier" | "product" | "category" | "bill";
+export interface PurchaseTotals {
+  bills: number; taxable: number; tax: number; total: number; suppliers: number; returns_total: number; paid: number;
+  lines_taxable?: number; lines_tax?: number; lines_total?: number; lines_qty?: number;
+}
+export interface PurchaseRow {
+  key: string; label: string; taxable: number; tax: number; total: number;
+  // supplier
+  bills?: number; returns_total?: number; net_total?: number; paid?: number; balance_now?: number | null; last_bill_date?: string;
+  // bill
+  bill_date?: string; bill_number?: string | null; supplier_id?: string; lines?: number;
+  // product / category
+  sku?: string | null; category?: string | null; products?: number; qty?: number; free_qty?: number; damaged_qty?: number;
+  avg_cost?: number | null; cost_per_piece?: number | null; min_cost?: number; max_cost?: number;
+  first_cost?: number; last_cost?: number; cost_now?: number; cost_change_pct?: number | null;
+}
+export interface PurchaseReport { by: PurchaseBy; total: number; totals: PurchaseTotals; rows: PurchaseRow[] }
+
+interface Page { search?: string | null; limit?: number; offset?: number }
+
+export const reportInventory = (
+  from: string, to: string, locationId: string | null,
+  opts: Page & { category?: string | null; status?: StockFilter; sort?: string; dir?: "asc" | "desc" } = {},
+) =>
+  call<InventoryReport>("report_inventory", {
+    p_from: from, p_to: to, p_location_id: locationId, p_category: opts.category ?? null, p_search: opts.search ?? null,
+    p_status: opts.status ?? "all", p_sort: opts.sort ?? "value", p_dir: opts.dir ?? "desc",
+    p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });
+
+export const reportExpiry = (locationId: string | null, days: number, opts: Page = {}) =>
+  call<ExpiryReport>("report_expiry", {
+    p_location_id: locationId, p_days: days, p_search: opts.search ?? null, p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });
+
+export const reportStockMovement = (from: string, to: string, locationId: string | null, opts: Page & { type?: string | null } = {}) =>
+  call<MovementReport>("report_stock_movement", {
+    p_from: from, p_to: to, p_location_id: locationId, p_type: opts.type ?? null, p_search: opts.search ?? null,
+    p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });
+
+export const reportPurchases = (from: string, to: string, locationId: string | null, by: PurchaseBy, opts: Page = {}) =>
+  call<PurchaseReport>("report_purchases", {
+    p_from: from, p_to: to, p_location_id: locationId, p_by: by, p_search: opts.search ?? null,
+    p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0,
+  });

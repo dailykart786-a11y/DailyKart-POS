@@ -42,21 +42,22 @@ export const CATEGORIES: ReportCategory[] = [
     id: "products", title: "Products", icon: Package,
     reports: [
       { id: "product.performance", title: "Product performance", about: "Units, sales, returns, cost and profit for each product." },
-      { id: "product.movers", title: "Fast, slow and non-moving", about: "Products that sell fast, slowly or not at all.", phase: 4 },
+      { id: "product.movers", title: "Fast, slow and non-moving", about: "Products that sell fast, slowly or not at all, with days of stock left." },
     ],
   },
   {
     id: "inventory", title: "Inventory", icon: Boxes,
     reports: [
-      { id: "stock.valuation", title: "Stock value and status", about: "Stock in hand, its value, low and out-of-stock items.", phase: 4 },
-      { id: "stock.expiry", title: "Expiry", about: "Expired and near-expiry stock and its value.", phase: 4 },
-      { id: "stock.movement", title: "Stock movement", about: "Every stock change: sales, purchases, returns and adjustments.", phase: 4 },
+      { id: "stock.valuation", title: "Stock value and status", about: "Stock in hand, its value at cost and MRP, low and out-of-stock items." },
+      { id: "stock.expiry", title: "Expiry", about: "Expired and near-expiry batches and their value, by days left." },
+      { id: "stock.movement", title: "Stock movement", about: "Every stock change: sales, purchases, returns and adjustments, with reasons." },
     ],
   },
   {
     id: "purchases", title: "Purchases", icon: Truck,
     reports: [
-      { id: "purchase.summary", title: "Purchase summary", about: "Supplier bills, GST paid, returns to suppliers.", phase: 4 },
+      { id: "purchase.summary", title: "Purchase summary", about: "Supplier bills, GST paid, returns and payments, by supplier, bill or category." },
+      { id: "purchase.product", title: "Purchase by product", about: "Quantity bought, free pieces and how each product's purchase cost changed." },
     ],
   },
   {

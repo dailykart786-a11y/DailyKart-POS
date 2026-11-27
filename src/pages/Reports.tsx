@@ -19,6 +19,7 @@ import {
 } from "@/components/reports/SalesViews";
 import { ExpenseSummary, ExpenseTrend, PLStatement, PLTrend } from "@/components/reports/ProfitExpenseViews";
 import { CustomerAnalysis, ProductPerformance } from "@/components/reports/ProductCustomerViews";
+import { PurchaseReport, StockExpiry, StockMovementReport, StockReport } from "@/components/reports/StockPurchaseViews";
 import { useStore } from "@/hooks/useStore";
 import { isoDate } from "@/lib/reports/api";
 import { DEFAULT_REPORT, findReport } from "@/lib/reports/catalog";
@@ -41,6 +42,12 @@ const VIEWS: Record<string, (p: { ctx: ReportCtx }) => JSX.Element> = {
   "customer.analysis": CustomerAnalysis,
   "exp.summary": ExpenseSummary,
   "exp.trend": ExpenseTrend,
+  "product.movers": ({ ctx }) => <StockReport ctx={ctx} mode="movers" />,
+  "stock.valuation": ({ ctx }) => <StockReport ctx={ctx} mode="valuation" />,
+  "stock.expiry": StockExpiry,
+  "stock.movement": StockMovementReport,
+  "purchase.summary": ({ ctx }) => <PurchaseReport ctx={ctx} />,
+  "purchase.product": ({ ctx }) => <PurchaseReport ctx={ctx} fixedBy="product" />,
 };
 
 const toPicker = (r: Range): DateRange => ({ from: new Date(r.from + "T00:00:00"), to: new Date(r.to + "T00:00:00") });
