@@ -11,10 +11,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { useStore, inStore } from "@/hooks/useStore";
 import { toast } from "@/hooks/use-toast";
 import { isValidGstin } from "@/lib/invoice";
-import { Truck, Plus, Trash2, Save, IndianRupee } from "lucide-react";
+import { Truck, Plus, Trash2, Save, IndianRupee, BookOpen } from "lucide-react";
+import { SupplierLedgerCard } from "@/components/SupplierLedgerCard";
+import { dueInfo } from "@/lib/statement";
+import { Badge } from "@/components/ui/badge";
 
 interface Product { id: string; name: string; sku: string; barcode: string | null; cost_price: number; gst_rate: number | null; stock_quantity: number | null; }
-interface Supplier { supplier_id: string; name: string; phone: string | null; gstin: string | null; purchase_total: number; paid_total: number; balance: number; }
+interface Supplier {
+  supplier_id: string; name: string; phone: string | null; gstin: string | null; purchase_total: number; paid_total: number; balance: number;
+  location_id?: string; opening_balance?: number; credit_days?: number | null; oldest_due_at?: string | null;
+}
 interface Line { product: Product; quantity: string; unitCost: string; gstRate: string; batchNo?: string; expiry?: string; }
 interface PurchaseRow { id: string; bill_number: string | null; bill_date: string; total_amount: number; tax_amount: number; suppliers?: { name: string } | null; }
 
@@ -45,6 +51,7 @@ export default function Purchases() {
   const [payFor, setPayFor] = useState<Supplier | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState("cash");
+  const [ledgerFor, setLedgerFor] = useState<Supplier | null>(null);
 
   const load = async () => {
     const [pRes, sRes, puRes] = await Promise.all([
@@ -59,7 +66,7 @@ export default function Purchases() {
     }
     setUnavailable(false);
     setProducts((pRes.data || []) as any);
-    setSuppliers(((sRes.data || []) as any[]).map((s) => ({ ...s, purchase_total: Number(s.purchase_total), paid_total: Number(s.paid_total), balance: Number(s.balance) })));
+    setSuppliers(((sRes.data || []) as any[]).map((s) => ({ ...s, purchase_total: Number(s.purchase_total), paid_total: Number(s.paid_total), balance: Number(s.balance), opening_balance: Number(s.opening_balance || 0) })));
     setPurchases(((puRes.data || []) as any[]).map((p) => ({ ...p, total_amount: Number(p.total_amount), tax_amount: Number(p.tax_amount) })));
   };
 
@@ -353,6 +360,13 @@ export default function Purchases() {
                   <Button onClick={addSupplier} disabled={busy || !sName.trim()} className="gap-1"><Plus className="h-4 w-4" /> Add</Button>
                 </CardContent>
               </Card>
+              {ledgerFor && (
+                <SupplierLedgerCard
+                  supplier={suppliers.find((x) => x.supplier_id === ledgerFor.supplier_id) || ledgerFor}
+                  onClose={() => setLedgerFor(null)}
+                  onChanged={load}
+                />
+              )}
               {payFor && (
                 <Card>
                   <CardHeader><CardTitle className="text-lg">Pay {payFor.name} (due {rupees(payFor.balance)})</CardTitle></CardHeader>
@@ -394,8 +408,16 @@ export default function Purchases() {
                             </TableCell>
                             <TableCell className="text-right hidden sm:table-cell">{rupees(s.purchase_total)}</TableCell>
                             <TableCell className="text-right hidden sm:table-cell">{rupees(s.paid_total)}</TableCell>
-                            <TableCell className={`text-right font-semibold ${s.balance > 0 ? "text-destructive" : ""}`}>{rupees(s.balance)}</TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className={`text-right font-semibold ${s.balance > 0 ? "text-destructive" : ""}`}>
+                              {rupees(s.balance)}
+                              {(() => {
+                                const d = s.balance > 0 ? dueInfo(s.oldest_due_at, s.credit_days) : null;
+                                if (!d) return null;
+                                return <div className="text-xs font-normal">{d.overdueDays > 0 ? <Badge variant="destructive">{d.overdueDays}d overdue</Badge> : `due ${d.due.toLocaleDateString("en-IN")}`}</div>;
+                              })()}
+                            </TableCell>
+                            <TableCell className="text-right whitespace-nowrap space-x-1">
+                              <Button size="sm" variant="ghost" aria-label={`Ledger for ${s.name}`} onClick={() => setLedgerFor(s)}><BookOpen className="h-4 w-4" /></Button>
                               <Button size="sm" variant="outline" onClick={() => { setPayFor(s); setPayAmount(s.balance > 0 ? String(s.balance) : ""); }}>Pay</Button>
                             </TableCell>
                           </TableRow>
