@@ -19,6 +19,7 @@ import {
 } from "@/components/reports/SalesViews";
 import { ExpenseSummary, ExpenseTrend, PLStatement, PLTrend } from "@/components/reports/ProfitExpenseViews";
 import { CustomerAnalysis, ProductPerformance } from "@/components/reports/ProductCustomerViews";
+import { GstSummary, StaffPerformance } from "@/components/reports/GstStaffViews";
 import { KhataAgeing, PaymentRegisterView, RegisterVariance } from "@/components/reports/KhataPaymentViews";
 import { PurchaseReport, StockExpiry, StockMovementReport, StockReport } from "@/components/reports/StockPurchaseViews";
 import { useStore } from "@/hooks/useStore";
@@ -52,6 +53,8 @@ const VIEWS: Record<string, (p: { ctx: ReportCtx }) => JSX.Element> = {
   "khata.ageing": KhataAgeing,
   "pay.money": PaymentRegisterView,
   "pay.register": RegisterVariance,
+  "gst.summary": GstSummary,
+  "staff.performance": StaffPerformance,
 };
 
 const toPicker = (r: Range): DateRange => ({ from: new Date(r.from + "T00:00:00"), to: new Date(r.to + "T00:00:00") });

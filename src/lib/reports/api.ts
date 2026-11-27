@@ -66,7 +66,7 @@ export interface ExpenseReport {
   by_method: { method: string; amount: number; count: number }[];
 }
 
-const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by|^ref|^kind|^bucket|^cashier|^party|^note|^phone)$/;
+const TEXT_KEYS = /(_id|^key|^label|^name|^phone|^sku|^barcode|^category|^hsn_code|^bucket|^from|^to|^method|_at|^as_of|_date|^batch_no|^bill_number|^note|^movement|^movement_type|^stock_status|^source_type|^by_name|^by|^ref|^kind|^bucket|^cashier|^party|^note|^phone|^hsn|^description|^job_title)$/;
 
 /** Postgres numeric arrives as text; turn the number fields into numbers. */
 export function toNumbers<T>(v: T): T {
@@ -321,3 +321,42 @@ export const reportPaymentRegister = (from: string, to: string, locationId: stri
 
 export const reportRegisters = (from: string, to: string, locationId: string | null, opts: Page = {}) =>
   call<RegisterReport>("report_registers", { p_from: from, p_to: to, p_location_id: locationId, p_limit: opts.limit ?? 25, p_offset: opts.offset ?? 0 });
+
+// ---------------------------------------------------------------- Phase 6: GST and staff
+export interface GstSplit { taxable: number; cgst: number; sgst: number; igst: number; tax: number }
+export interface GstRateRow extends GstSplit { rate: number }
+export interface GstReport {
+  from: string; to: string;
+  output: GstSplit & {
+    sales_taxable: number; sales_tax: number; credit_notes_taxable: number; credit_notes_tax: number;
+    b2b_taxable: number; b2b_tax: number; b2c_taxable: number; b2c_tax: number;
+  };
+  input: GstSplit & { purchases_taxable: number; purchases_tax: number; returns_taxable: number; returns_tax: number; no_gstin_tax: number };
+  net: { cgst: number; sgst: number; igst: number; tax: number };
+  checks: { no_hsn_lines: number; no_hsn_value: number; zero_rated_value: number; input_without_gstin_tax: number; purchases_without_store_state: number };
+  output_by_rate: GstRateRow[];
+  input_by_rate: GstRateRow[];
+  hsn: (GstRateRow & { hsn: string; description: string | null; qty: number })[];
+  by_month: { bucket: string; output_tax: number; input_tax: number; net: number }[];
+}
+
+export interface StaffRow {
+  user_id: string | null; login: boolean; name: string; job_title: string | null;
+  bills: number; billed: number; gross_sales: number; discounts: number; discount_pct: number | null; discounted_bills: number;
+  returns_count: number; returns_value: number; net_sales: number; avg_bill: number | null; units_per_bill: number | null;
+  khata_count: number; khata_collected: number;
+  sessions: number; cash_short: number; short_count: number; cash_net_diff: number; register_hours: number; sales_per_hour: number | null;
+  discount_approvals: number;
+  present: number | null; half_days: number | null; absent: number | null; leave: number | null; late_minutes: number | null; late_days: number | null;
+}
+export interface StaffReport {
+  from: string; to: string;
+  totals: { people: number; bills: number; net_sales: number; discounts: number; returns_value: number; cash_short: number; khata_collected: number };
+  rows: StaffRow[];
+}
+
+export const reportGst = (from: string, to: string, locationId: string | null) =>
+  call<GstReport>("report_gst", { p_from: from, p_to: to, p_location_id: locationId });
+
+export const reportStaff = (from: string, to: string, locationId: string | null) =>
+  call<StaffReport>("report_staff", { p_from: from, p_to: to, p_location_id: locationId });

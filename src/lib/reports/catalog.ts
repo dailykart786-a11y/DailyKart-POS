@@ -89,13 +89,13 @@ export const CATEGORIES: ReportCategory[] = [
   {
     id: "gst", title: "GST", icon: Receipt,
     reports: [
-      { id: "gst.summary", title: "GST summary", about: "Output and input GST, HSN-wise. The GST reports page already has GSTR-1 and 3B.", phase: 6 },
+      { id: "gst.summary", title: "GST summary", about: "Output and input GST by rate and HSN, with CGST, SGST and IGST. A working view, not a return: the GST reports page has GSTR-1 and 3B." },
     ],
   },
   {
     id: "staff", title: "Staff", icon: UserCog,
     reports: [
-      { id: "staff.performance", title: "Staff performance", about: "Bills, sales, discounts, returns and cash variance by staff member.", phase: 6 },
+      { id: "staff.performance", title: "Staff performance", about: "Bills, sales, discounts, returns, khata collected, cash short and attendance by staff member." },
     ],
   },
   {
