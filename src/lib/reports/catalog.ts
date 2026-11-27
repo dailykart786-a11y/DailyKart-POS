@@ -69,7 +69,7 @@ export const CATEGORIES: ReportCategory[] = [
   {
     id: "khata", title: "Khata (udhaar)", icon: BookOpen,
     reports: [
-      { id: "khata.ageing", title: "Dues and ageing", about: "Who owes how much, and for how long.", phase: 5 },
+      { id: "khata.ageing", title: "Dues and ageing", about: "Who owes how much and for how long (0–7, 8–15, 16–30, 31–60, 60+ days), with each customer's statement." },
     ],
   },
   {
@@ -82,7 +82,8 @@ export const CATEGORIES: ReportCategory[] = [
   {
     id: "payments", title: "Payments & cash", icon: Landmark,
     reports: [
-      { id: "pay.register", title: "Day closing and cash variance", about: "Expected versus counted cash for each register session.", phase: 5 },
+      { id: "pay.money", title: "Money in and out", about: "Every payment received and made, by cash, UPI, card, bank or cheque." },
+      { id: "pay.register", title: "Day closing and cash variance", about: "Expected versus counted cash for each register session, and who was short." },
     ],
   },
   {
