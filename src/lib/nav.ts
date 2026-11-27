@@ -3,7 +3,7 @@
 // so a new page only needs adding once.
 import type { LucideIcon } from "lucide-react";
 import {
-  BadgePercent, BarChart3, BookOpen, BookText, Boxes, ClipboardList, DollarSign, FileSpreadsheet,
+  BadgePercent, Settings2, BarChart3, BookOpen, BookText, Boxes, ClipboardList, DollarSign, FileSpreadsheet,
   Landmark, LayoutDashboard, Package, ScrollText, ShoppingCart, Truck, Undo2, UserCheck, UserCog, Users,
 } from "lucide-react";
 
@@ -15,6 +15,8 @@ export interface NavItem {
   permission: string | null;
   /** One line shown under the page title. */
   description: string;
+  /** Only these roles see it (on top of the permission). */
+  roles?: string[];
 }
 
 export interface NavGroup {
@@ -76,6 +78,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Staff", url: "/staff", icon: UserCog, permission: "staff", description: "Attendance, advances and salary" },
       { title: "Activity log", url: "/activity", icon: ScrollText, permission: "audit", description: "Who changed what, and when" },
       { title: "Users", url: "/users", icon: UserCheck, permission: "users", description: "Sign-ins, roles and stores" },
+      { title: "Shop settings", url: "/settings", icon: Settings2, permission: null, roles: ["admin", "manager"], description: "Shop details on bills and UPI payments" },
     ],
   },
 ];

@@ -34,6 +34,7 @@ const ActivityLog = lazy(() => import("./pages/ActivityLog"));
 const UserManagement = lazy(() => import("./pages/UserManagement"));
 import Auth from "./pages/Auth";
 const Catalogue = lazy(() => import("./pages/Catalogue"));
+const Settings = lazy(() => import("./pages/Settings"));
 import NotFound from "./pages/NotFound";
 
 // Billing, the dashboard and sign-in load straight away so they also open
@@ -59,6 +60,7 @@ const LATER_PAGES = [
   () => import("./pages/UserManagement"),
   () => import("./pages/Catalogue"),
   () => import("./pages/ErrorPage"),
+  () => import("./pages/Settings"),
 ];
 
 function usePrefetchPages() {
@@ -105,6 +107,7 @@ const AppRoutes = () => {
         <Route path="/error/:code" element={<ErrorPage />} />
         <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
           <Route path="/" element={<Index />} />
+          <Route path="/settings" element={<Settings />} />
           {ROUTES.map((r) => (
             <Route key={r.path} path={r.path} element={
               <RoleProtectedRoute requiredPermission={r.permission}>{r.element}</RoleProtectedRoute>

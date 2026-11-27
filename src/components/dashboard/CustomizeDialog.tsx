@@ -1,0 +1,62 @@
+import { ArrowDown, ArrowUp, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import type { KpiDef } from "./kpis";
+
+interface Props {
+  cards: KpiDef[];          // in the current order, only those this role can see
+  hidden: string[];
+  onChange: (order: string[], hidden: string[]) => void;
+  onReset: () => void;
+}
+
+/** Show, hide and reorder the number cards. Saved on this device for this user. */
+export function CustomizeDialog({ cards, hidden, onChange, onReset }: Props) {
+  const ids = cards.map((c) => c.id);
+  const move = (i: number, by: number) => {
+    const j = i + by;
+    if (j < 0 || j >= ids.length) return;
+    const next = [...ids];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next, hidden);
+  };
+  const toggle = (id: string) => onChange(ids, hidden.includes(id) ? hidden.filter((h) => h !== id) : [...hidden, id]);
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-2">
+          <SlidersHorizontal className="h-4 w-4" /> <span className="hidden sm:inline">Customise</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Customise dashboard</DialogTitle>
+          <DialogDescription>Tick the cards to show and use the arrows to change their order. Saved on this device.</DialogDescription>
+        </DialogHeader>
+        <ul className="max-h-[55vh] overflow-y-auto divide-y border rounded-md">
+          {cards.map((c, i) => (
+            <li key={c.id} className="flex items-center gap-3 px-3 py-2">
+              <Checkbox id={`kpi-${c.id}`} checked={!hidden.includes(c.id)} onCheckedChange={() => toggle(c.id)} />
+              <label htmlFor={`kpi-${c.id}`} className="flex-1 text-sm cursor-pointer">{c.label}</label>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${c.label} up`}>
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === cards.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${c.label} down`}>
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <Button variant="outline" className="gap-2" onClick={onReset}>
+            <RotateCcw className="h-4 w-4" /> Reset to default
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
