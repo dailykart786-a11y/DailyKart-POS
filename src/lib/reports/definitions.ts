@@ -25,6 +25,17 @@ export const KPI: Record<string, KpiDefinition> = {
   customer_outstanding: { label: "Customer dues", how: "What customers owe right now: opening balance plus udhaar bills, minus payments and khata refunds.", source: "Khata" },
   supplier_outstanding: { label: "Supplier dues", how: "What you owe suppliers right now: opening balance plus purchases, minus payments and returns.", source: "Purchases, supplier payments" },
   inventory_value: { label: "Stock value", how: "Stock in hand times the latest purchase cost of each product.", source: "Products" },
+  inventory_mrp_value: { label: "Stock value at MRP", how: "Stock in hand times MRP (or selling price with GST when there is no MRP). What it could sell for, before discounts.", source: "Products" },
+  dead_stock: { label: "Not moving", how: "Products in stock that sold nothing in the dates you picked, and the cost value of that stock.", source: "Products, bills" },
+  fast_movers: { label: "Fast moving", how: "The top 20% of products by units sold in the dates you picked. Slow moving is the bottom 30% of products that sold at least once.", source: "Bills" },
+  days_cover: { label: "Days of stock", how: "Stock in hand divided by average units sold per day (after returns) in the dates you picked.", source: "Products, bills, returns" },
+  expiry_value: { label: "Value at risk", how: "Estimated pieces still on the shelf from each batch, times the latest purchase cost. Assumes the earliest expiry is sold first.", source: "Batches, products" },
+  stock_in: { label: "Stock in", how: "Pieces added: purchases, customer returns, stock found and opening stock. Valued at the cost saved with each change.", source: "Stock movements" },
+  stock_out: { label: "Stock out", how: "Pieces removed: sales, returns to suppliers and stock written off. Valued at the cost saved with each change.", source: "Stock movements" },
+  purchases_taxable: { label: "Purchases without GST", how: "Supplier bills dated in this period, before GST.", source: "Purchases" },
+  purchase_gst: { label: "GST on purchases", how: "GST charged on supplier bills dated in this period (input tax).", source: "Purchases" },
+  supplier_paid: { label: "Paid to suppliers", how: "Supplier payments recorded in these dates, whatever bill they were for.", source: "Supplier payments" },
+  purchase_returns: { label: "Returns to suppliers", how: "Goods sent back to suppliers in these dates, with GST.", source: "Purchase returns" },
 };
 
 export const COST_MISSING_NOTE =

@@ -47,12 +47,12 @@ export function Overview({ ctx }: { ctx: ReportCtx }) {
                   tone={cur.net_profit < 0 ? "bad" : undefined} onClick={() => ctx.open("pl.statement")} />
                 <Kpi k="expenses" icon={Wallet} value={inr(cur.expenses)} now={cur.expenses} before={c(prev?.expenses)} lowerIsBetter {...cmp} onClick={() => ctx.open("exp.summary")} />
                 <Kpi k="purchases_total" icon={Truck} value={inr(cur.purchases_total)} now={cur.purchases_total} before={c(prev?.purchases_total)} {...cmp}
-                  hint={cur.purchases_count ? `${cur.purchases_count} bills` : undefined} />
+                  hint={cur.purchases_count ? `${cur.purchases_count} bills` : undefined} onClick={() => ctx.open("purchase.summary")} />
                 <Kpi k="returns" icon={RotateCcw} value={inr(cur.returns)} now={cur.returns} before={c(prev?.returns)} lowerIsBetter {...cmp}
                   hint={cur.returns_count ? `${cur.returns_count} returns` : undefined} onClick={() => ctx.open("sales.returns")} />
                 <Kpi k="customer_outstanding" icon={Users} value={inr(pos.customer_outstanding)} hint={`${pos.customers_owing} customers · now`} onClick={() => ctx.open("sales.credit")} />
-                <Kpi k="supplier_outstanding" icon={Truck} value={inr(pos.supplier_outstanding)} hint={`${pos.suppliers_owed} suppliers · now`} />
-                <Kpi k="inventory_value" icon={Boxes} value={inr(pos.inventory_value)} hint={`${num(pos.sku_count)} products · now`} />
+                <Kpi k="supplier_outstanding" icon={Truck} value={inr(pos.supplier_outstanding)} hint={`${pos.suppliers_owed} suppliers · now`} onClick={() => ctx.open("purchase.summary")} />
+                <Kpi k="inventory_value" icon={Boxes} value={inr(pos.inventory_value)} hint={`${num(pos.sku_count)} products · now`} onClick={() => ctx.open("stock.valuation")} />
               </div>
               {prev && <p className="text-xs text-muted-foreground">Changes compare with {ctx.compareLabel}. Dues and stock value are as of now, not for the dates picked.</p>}
             </>
