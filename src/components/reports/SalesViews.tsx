@@ -16,6 +16,17 @@ import { CHART_COLORS, Kpi, Loaded, METHOD_LABEL, NoData, Section, fmtBucket, in
 
 const R = "text-right";
 
+/** The dates one row of a trend covers, kept inside the dates picked. */
+function periodOf(bucket: string, grain: Grain, range: { from: string; to: string }) {
+  const d = new Date(bucket + "T00:00:00");
+  const end = grain === "day" ? d
+    : grain === "week" ? new Date(d.getFullYear(), d.getMonth(), d.getDate() + 6)
+    : grain === "month" ? new Date(d.getFullYear(), d.getMonth() + 1, 0)
+    : new Date(d.getFullYear(), 11, 31);
+  const to = end.toLocaleDateString("en-CA");
+  return { from: bucket < range.from ? range.from : bucket, to: to > range.to ? range.to : to };
+}
+
 /** Lets the owner regroup a trend by day, week, month or year. */
 export function GrainPicker({ value, onChange, days }: { value: Grain; onChange: (g: Grain) => void; days: number }) {
   return (
@@ -94,7 +105,7 @@ export function SalesSummary({ ctx }: { ctx: ReportCtx }) {
                     </ComposedChart>
                   </ResponsiveContainer>
                 </Section>
-                <Section title="Period by period" description="Only periods with sales or returns are listed."
+                <Section title="Period by period" description="Only periods with sales or returns are listed. Click a row to see what sold in it."
                   csv={{ filename: csvName(ctx, `sales-by-${grain}`), meta: csvMeta(ctx, "Sales summary", ["Sales without GST unless noted"]),
                     rows: rows.map((r) => ({ period: r.bucket, bills: r.bills, gross_sales: r.gross_sales, discounts: r.discounts, returns: r.returns, net_sales: r.net_sales, gst: r.tax, total_billed_incl_gst: r.billed_total })) }}>
                   <Table>
@@ -105,7 +116,8 @@ export function SalesSummary({ ctx }: { ctx: ReportCtx }) {
                     </TableRow></TableHeader>
                     <TableBody>
                       {rows.map((r) => (
-                        <TableRow key={r.bucket}>
+                        <TableRow key={r.bucket} className="cursor-pointer" title="See this period product by product"
+                          onClick={() => ctx.explore({ group: grain === "day" ? "product" : "day", ...periodOf(r.bucket, grain, ctx.range) })}>
                           <TableCell className="whitespace-nowrap">{fmtBucket(r.bucket, grain)}</TableCell><TableCell className={R}>{r.bills}</TableCell>
                           <TableCell className={R}>{inr(r.gross_sales, 2)}</TableCell><TableCell className={R}>{inr(r.discounts, 2)}</TableCell>
                           <TableCell className={R}>{inr(r.returns, 2)}</TableCell><TableCell className={R}>{inr(r.net_sales, 2)}</TableCell>
@@ -190,6 +202,11 @@ function BreakdownView({ ctx, by, title, about, profit, slug }: { ctx: ReportCtx
         const totGp = tot("gross_profit");
         const data = rows.slice(0, by === "weekday" ? 7 : 12).map((r) => ({ ...r, name: r.label.length > 16 ? r.label.slice(0, 15) + "…" : r.label }));
         const showBills = by !== "category";
+        // Drill into the sales explorer: a category by product, a staff member by category
+        const drill = by === "category" ? (r: BreakdownRow) => ctx.explore({ group: "product", category: r.key })
+          : by === "cashier" ? (r: BreakdownRow) => r.key && ctx.explore({ group: "category", cashierId: r.key, cashierName: r.label })
+          : null;
+        const barClick = drill ? (d: unknown) => { const r = (d as { payload?: BreakdownRow }).payload; if (r) drill(r); } : undefined;
         return (
           <div className="space-y-4">
             <Section title={title} description={about}>
@@ -208,12 +225,13 @@ function BreakdownView({ ctx, by, title, about, profit, slug }: { ctx: ReportCtx
                     <XAxis type="number" tickFormatter={(v) => inrShort(Number(v))} />
                     <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
                     <Tooltip formatter={(v, name) => [inr(Number(v)), name]} /><Legend />
-                    <Bar dataKey="net_sales" name="Net sales" fill="hsl(var(--primary))" radius={[0, 3, 3, 0]} />
-                    {profit && <Bar dataKey="gross_profit" name="Gross profit" fill="hsl(var(--success))" radius={[0, 3, 3, 0]} />}
+                    <Bar dataKey="net_sales" name="Net sales" fill="hsl(var(--primary))" radius={[0, 3, 3, 0]} onClick={barClick} cursor={drill ? "pointer" : undefined} />
+                    {profit && <Bar dataKey="gross_profit" name="Gross profit" fill="hsl(var(--success))" radius={[0, 3, 3, 0]} onClick={barClick} cursor={drill ? "pointer" : undefined} />}
                   </BarChart>
                 )}
               </ResponsiveContainer>
               {rows.length > data.length && <p className="text-xs text-muted-foreground mt-1">Chart shows the top {data.length}; the table lists all {rows.length}.</p>}
+              {drill && <p className="text-xs text-muted-foreground mt-1">Click a bar or row to see it {by === "category" ? "product by product" : "by category"} in the sales explorer.</p>}
             </Section>
             <Section title="Details" description="Amounts without GST. Returns are counted on the day they came back."
               csv={{ filename: csvName(ctx, slug), meta: csvMeta(ctx, title, ["Sales and profit without GST"]),
@@ -231,7 +249,7 @@ function BreakdownView({ ctx, by, title, about, profit, slug }: { ctx: ReportCtx
                 </TableRow></TableHeader>
                 <TableBody>
                   {rows.map((r) => (
-                    <TableRow key={r.key}>
+                    <TableRow key={r.key} className={drill ? "cursor-pointer" : undefined} onClick={drill ? () => drill(r) : undefined}>
                       <TableCell className="font-medium">{r.label}</TableCell>
                       {showBills && <TableCell className={R}>{r.bills}</TableCell>}
                       <TableCell className={R}>{num(r.units)}</TableCell><TableCell className={R}>{inr(r.discounts, 2)}</TableCell>

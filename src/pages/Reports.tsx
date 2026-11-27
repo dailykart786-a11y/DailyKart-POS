@@ -19,6 +19,8 @@ import {
 } from "@/components/reports/SalesViews";
 import { ExpenseSummary, ExpenseTrend, PLStatement, PLTrend } from "@/components/reports/ProfitExpenseViews";
 import { CustomerAnalysis, ProductPerformance } from "@/components/reports/ProductCustomerViews";
+import { ExploreState, writeExplore } from "@/lib/reports/explore";
+import { SalesExplorer } from "@/components/reports/ExploreView";
 import { GstSummary, StaffPerformance } from "@/components/reports/GstStaffViews";
 import { KhataAgeing, PaymentRegisterView, RegisterVariance } from "@/components/reports/KhataPaymentViews";
 import { PurchaseReport, StockExpiry, StockMovementReport, StockReport } from "@/components/reports/StockPurchaseViews";
@@ -29,6 +31,7 @@ import { COMPARE, CompareKey, PRESETS, PresetKey, Range, compareRange, presetRan
 
 const VIEWS: Record<string, (p: { ctx: ReportCtx }) => JSX.Element> = {
   "sales.summary": SalesSummary,
+  "sales.explore": SalesExplorer,
   "sales.hourly": SalesHourly,
   "sales.weekday": SalesWeekday,
   "sales.payments": SalesPayments,
@@ -87,6 +90,11 @@ export default function Reports() {
     setNavOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [setParams]);
+  const explore = useCallback((st: ExploreState) => {
+    setParams((p) => { const n = writeExplore(p, st); n.set("r", "sales.explore"); return n; }, { replace: false });
+    setNavOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [setParams]);
   const onMissing = useCallback(() => setMissing(true), []);
 
   const compare = compareRange(applied.range, applied.compareKey);
@@ -98,6 +106,7 @@ export default function Reports() {
     storeName: filterStoreId ? stores.find((s) => s.id === filterStoreId)?.name ?? "One store" : stores.length > 1 ? "All stores" : stores[0]?.name ?? "All stores",
     run,
     open,
+    explore,
     onMissing,
   };
 
