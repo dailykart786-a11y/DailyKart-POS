@@ -28,6 +28,7 @@ import Offers from "./pages/Offers";
 import ActivityLog from "./pages/ActivityLog";
 import UserManagement from "./pages/UserManagement";
 import Auth from "./pages/Auth";
+import Catalogue from "./pages/Catalogue";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -44,6 +45,7 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/auth" element={<Auth />} />
+              <Route path="/shop/:slug" element={<Catalogue />} />
               <Route path="/" element={
                 <ProtectedRoute>
                   <Index />
