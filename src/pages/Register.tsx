@@ -1,30 +1,56 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { useStore, inStore } from "@/hooks/useStore";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Landmark, LockOpen, Lock } from "lucide-react";
+import { Landmark, LockOpen, Lock, Smartphone, CreditCard, Wallet, ChevronDown, ChevronUp } from "lucide-react";
 import { DailySummaryCard } from "@/components/DailySummaryCard";
+import { CashCounter } from "@/components/register/CashCounter";
+import { CountSummary } from "@/components/register/CountSummary";
+import { DiffBadge, MethodCheck, type MethodRow } from "@/components/register/MethodCheck";
+import { type CashCount, cleanCount, countPieces, countTotal, emptyCount, rupees } from "@/lib/cashCount";
 
 interface Totals {
   bills: number; total_sales: number; cash_sales: number; upi_sales: number; card_sales: number; credit_sales: number;
   khata_cash_received: number; khata_upi_received: number; cash_refunds: number; supplier_cash_paid: number; expense_cash_paid?: number; bank_sales?: number;
 }
-interface Status { session: { id: string; opened_at: string; opening_cash: number }; totals: Totals; expected_cash: number; }
+interface Breakdown { cash?: CashCount; upi?: number | null; card?: number | null; other?: number | null;
+  methods?: Record<string, { expected: number; counted: number | null; difference: number | null }> }
+interface Session { id: string; opened_at: string; opening_cash: number; opening_breakdown?: Breakdown | null }
+interface Status { session: Session; totals: Totals; expected_cash: number; }
 interface Closed {
   id: string; user_id: string; opened_at: string; closed_at: string; opening_cash: number; counted_cash: number;
   expected_cash: number; difference: number; totals: Totals | null; note: string | null;
+  opening_breakdown?: Breakdown | null; closing_breakdown?: Breakdown | null;
 }
 
-const rupees = (n: unknown) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const num = (v: unknown) => Number(v || 0);
+const parseAmount = (s: string): number | null => (s.trim() === "" ? null : Math.max(0, parseFloat(s) || 0));
+const isMissingFn = (e: { code?: string } | null) => e?.code === "PGRST202";
+
+/** Expected vs counted rows for a closed session (uses the stored breakdown when there is one). */
+function closedRows(h: Closed): MethodRow[] {
+  const m = h.closing_breakdown?.methods;
+  const t = h.totals;
+  const row = (key: string, label: string, expected: number, counted: number | null) => ({
+    key, label, expected: m?.[key] ? num(m[key].expected) : expected,
+    counted: m?.[key] ? (m[key].counted === null ? null : num(m[key].counted)) : counted,
+  });
+  const rows = [
+    row("cash", "Cash in drawer", num(h.expected_cash), num(h.counted_cash)),
+    row("upi", "UPI", num(t?.upi_sales) + num(t?.khata_upi_received), null),
+    row("card", "Card", num(t?.card_sales), null),
+    row("other", "Bank / other", num(t?.bank_sales), null),
+  ];
+  return rows.filter((r) => r.key === "cash" || r.expected > 0 || r.counted !== null);
+}
 
 export default function Register() {
   const { user } = useAuth();
@@ -33,13 +59,18 @@ export default function Register() {
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
-  const [opening, setOpening] = useState("");
-  const [counted, setCounted] = useState("");
+  const [openCount, setOpenCount] = useState<CashCount>(emptyCount);
+  const [closeCount, setCloseCount] = useState<CashCount>(emptyCount);
+  const [upi, setUpi] = useState("");
+  const [card, setCard] = useState("");
+  const [other, setOther] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<Closed[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [justClosed, setJustClosed] = useState<Closed | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [showOpening, setShowOpening] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -67,39 +98,66 @@ export default function Register() {
   }, [user, filterStoreId, role]);
 
   const openRegister = async () => {
+    const total = countTotal(openCount);
     setBusy(true);
-    const { error } = await supabase.rpc("open_register" as any, { p_opening_cash: parseFloat(opening) || 0 } as any);
+    // New function saves the notes and coins too; fall back if the database update isn't run yet.
+    let { error } = await supabase.rpc("open_register_v2" as any, { p_opening_cash: total, p_breakdown: { cash: cleanCount(openCount) } } as any);
+    if (isMissingFn(error)) ({ error } = await supabase.rpc("open_register" as any, { p_opening_cash: total } as any));
     setBusy(false);
     if (error) { toast({ title: "Not opened", description: error.message, variant: "destructive" }); return; }
-    setOpening("");
+    setOpenCount(emptyCount());
     setJustClosed(null);
-    toast({ title: "Register opened" });
+    toast({ title: "Register opened", description: `Opening cash ${rupees(total)}` });
     load();
   };
 
+  const t = status?.totals;
+  const expected = {
+    cash: num(status?.expected_cash),
+    upi: num(t?.upi_sales) + num(t?.khata_upi_received),
+    card: num(t?.card_sales),
+    other: num(t?.bank_sales),
+  };
+  const countedCash = countTotal(closeCount);
+  const liveRows: MethodRow[] = [
+    { key: "cash", label: "Cash in drawer", expected: expected.cash, counted: countPieces(closeCount) > 0 ? countedCash : null },
+    { key: "upi", label: "UPI", expected: expected.upi, counted: parseAmount(upi) },
+    { key: "card", label: "Card", expected: expected.card, counted: parseAmount(card) },
+    { key: "other", label: "Bank / other", expected: expected.other, counted: parseAmount(other) },
+  ];
+
   const closeRegister = async () => {
-    if (counted.trim() === "") { toast({ title: "Count the cash in the drawer first", variant: "destructive" }); return; }
+    if (countPieces(closeCount) === 0 && expected.cash > 0) {
+      toast({ title: "Count the cash in the drawer first", description: "Enter how many of each note and coin you have.", variant: "destructive" });
+      return;
+    }
     setBusy(true);
-    const { data, error } = await supabase.rpc("close_register" as any, { p_counted_cash: parseFloat(counted) || 0, p_note: note.trim() || null } as any);
+    const breakdown = { cash: cleanCount(closeCount), upi: parseAmount(upi), card: parseAmount(card), other: parseAmount(other) };
+    let { data, error } = await supabase.rpc("close_register_v2" as any, { p_counted_cash: countedCash, p_note: note.trim() || null, p_breakdown: breakdown } as any);
+    if (isMissingFn(error)) {
+      ({ data, error } = await supabase.rpc("close_register" as any, { p_counted_cash: countedCash, p_note: note.trim() || null } as any));
+    }
     setBusy(false);
     if (error) { toast({ title: "Not closed", description: error.message, variant: "destructive" }); return; }
-    setCounted(""); setNote("");
+    setCloseCount(emptyCount()); setUpi(""); setCard(""); setOther(""); setNote("");
     setJustClosed(data as any);
     load();
   };
 
-  const diffBadge = (d: number) => Math.abs(d) < 0.01
-    ? <Badge variant="secondary">Matches</Badge>
-    : d < 0 ? <Badge variant="destructive">Short {rupees(-d)}</Badge> : <Badge variant="outline">Extra {rupees(d)}</Badge>;
-
-  const t = status?.totals;
+  const onlineInput = (id: string, label: string, hint: string, Icon: typeof Smartphone, value: string, set: (v: string) => void, exp: number) => (
+    <div className="space-y-1">
+      <Label htmlFor={id} className="flex items-center gap-1.5"><Icon className="h-4 w-4" /> {label}</Label>
+      <Input id={id} type="number" inputMode="decimal" min="0" step="0.01" placeholder={`Bills say ${rupees(exp)}`} value={value} onChange={(e) => set(e.target.value)} />
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
 
   return (
     <Layout>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Landmark className="h-6 w-6" /> Day closing</h1>
-          <p className="text-muted-foreground">Open the cash drawer at the start of your shift and count it at the end</p>
+          <p className="text-muted-foreground">Count notes and coins when your shift starts and ends, and match UPI and card payments with the bills</p>
         </div>
 
         {unavailable ? (
@@ -111,25 +169,23 @@ export default function Register() {
         ) : !status ? (
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><LockOpen className="h-5 w-5" /> Open register</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               {justClosed && (
-                <div className="rounded-md border p-3 space-y-1">
-                  <p className="font-medium">Register closed. {diffBadge(Number(justClosed.difference))}</p>
-                  <p className="text-sm text-muted-foreground">Expected {rupees(justClosed.expected_cash)}, counted {rupees(justClosed.counted_cash)}</p>
+                <div className="rounded-md border p-3 space-y-2">
+                  <p className="font-medium flex flex-wrap items-center gap-2">Register closed. <DiffBadge d={Number(justClosed.difference)} /></p>
+                  <MethodCheck rows={closedRows(justClosed)} />
                 </div>
               )}
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-                <div className="space-y-2 flex-1">
-                  <Label htmlFor="open-cash">Cash in drawer now (opening cash)</Label>
-                  <Input id="open-cash" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0" value={opening} onChange={(e) => setOpening(e.target.value)} />
-                </div>
-                <Button onClick={openRegister} disabled={busy}>Open register</Button>
-              </div>
+              <p className="text-sm text-muted-foreground">Count the cash in the drawer before your first bill. Enter how many of each note and coin you have.</p>
+              <CashCounter idPrefix="open" value={openCount} onChange={setOpenCount} />
+              <Button onClick={openRegister} disabled={busy} className="w-full sm:w-auto">
+                Open register with {rupees(countTotal(openCount))}
+              </Button>
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <Card className="h-fit">
               <CardHeader>
                 <CardTitle className="text-lg">Since {new Date(status.session.opened_at).toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}</CardTitle>
               </CardHeader>
@@ -148,20 +204,45 @@ export default function Register() {
                   ["Cash paid to suppliers", `- ${rupees(t?.supplier_cash_paid)}`],
                   ...(t?.expense_cash_paid ? [["Expenses paid from till", `- ${rupees(t.expense_cash_paid)}`]] : []),
                 ] as [string, string][]).map(([k, v]) => (
-                  <div key={k} className="flex justify-between"><span className="text-muted-foreground">{k}</span><span>{v}</span></div>
+                  <div key={k} className="flex justify-between"><span className="text-muted-foreground">{k}</span><span className="tabular-nums">{v}</span></div>
                 ))}
-                <div className="flex justify-between border-t pt-2 mt-2"><span>Opening cash</span><span>{rupees(status.session.opening_cash)}</span></div>
-                <div className="flex justify-between font-bold text-base"><span>Cash that should be in drawer</span><span>{rupees(status.expected_cash)}</span></div>
+                <div className="flex justify-between border-t pt-2 mt-2">
+                  <span>Opening cash</span>
+                  <span className="tabular-nums">{rupees(status.session.opening_cash)}</span>
+                </div>
+                {status.session.opening_breakdown?.cash && (
+                  <div>
+                    <button type="button" className="text-xs text-primary inline-flex items-center gap-1" onClick={() => setShowOpening((v) => !v)}>
+                      {showOpening ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />} Opening notes and coins
+                    </button>
+                    {showOpening && <div className="mt-1"><CountSummary count={status.session.opening_breakdown.cash} /></div>}
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-base"><span>Cash that should be in drawer</span><span className="tabular-nums">{rupees(expected.cash)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">UPI that should have come in</span><span className="tabular-nums">{rupees(expected.upi)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Card that should have come in</span><span className="tabular-nums">{rupees(expected.card)}</span></div>
               </CardContent>
             </Card>
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Lock className="h-5 w-5" /> Close register</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="count-cash">Cash counted in drawer</Label>
-                  <Input id="count-cash" type="number" inputMode="decimal" min="0" step="0.01" value={counted} onChange={(e) => setCounted(e.target.value)} />
-                </div>
-                {counted.trim() !== "" && <div>{diffBadge((parseFloat(counted) || 0) - Number(status.expected_cash))}</div>}
+              <CardContent className="space-y-5">
+                <section className="space-y-2">
+                  <h3 className="font-semibold flex items-center gap-2"><Wallet className="h-4 w-4" /> 1. Count the cash drawer</h3>
+                  <CashCounter idPrefix="close" value={closeCount} onChange={setCloseCount} />
+                </section>
+                <section className="space-y-2">
+                  <h3 className="font-semibold flex items-center gap-2"><Smartphone className="h-4 w-4" /> 2. Check online payments</h3>
+                  <p className="text-xs text-muted-foreground">Enter what actually reached you. Leave blank to skip a check.</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {onlineInput("count-upi", "UPI received", "From your UPI / PhonePe / Paytm / GPay business app", Smartphone, upi, setUpi, expected.upi)}
+                    {onlineInput("count-card", "Card received", "From the card machine's settlement slip", CreditCard, card, setCard, expected.card)}
+                    {onlineInput("count-other", "Bank / other", "Bank transfers and anything else", Landmark, other, setOther, expected.other)}
+                  </div>
+                </section>
+                <section className="space-y-2">
+                  <h3 className="font-semibold">3. Expected vs counted</h3>
+                  <MethodCheck rows={liveRows} />
+                </section>
                 <div className="space-y-2">
                   <Label htmlFor="close-note">Note (optional)</Label>
                   <Input id="close-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. took 2000 to bank" />
@@ -186,20 +267,53 @@ export default function Register() {
                     <TableHead className="text-right">Sales</TableHead>
                     <TableHead className="text-right">Expected cash</TableHead>
                     <TableHead className="text-right">Counted</TableHead>
-                    <TableHead>Result</TableHead>
+                    <TableHead>Cash</TableHead>
+                    <TableHead>UPI / card</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.map((h) => (
-                    <TableRow key={h.id}>
-                      <TableCell className="whitespace-nowrap">{new Date(h.closed_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</TableCell>
-                      {role !== "cashier" && <TableCell>{names[h.user_id] || "Staff"}</TableCell>}
-                      <TableCell className="text-right">{rupees(h.totals?.total_sales)}</TableCell>
-                      <TableCell className="text-right">{rupees(h.expected_cash)}</TableCell>
-                      <TableCell className="text-right">{rupees(h.counted_cash)}</TableCell>
-                      <TableCell>{diffBadge(Number(h.difference))}{h.note ? <span className="text-xs text-muted-foreground ml-2">{h.note}</span> : null}</TableCell>
-                    </TableRow>
-                  ))}
+                  {history.map((h) => {
+                    const rows = closedRows(h);
+                    const online = rows.filter((r) => r.key !== "cash" && r.counted !== null);
+                    const onlineDiff = online.reduce((s, r) => s + (num(r.counted) - r.expected), 0);
+                    const open = expanded === h.id;
+                    return (
+                      <Fragment key={h.id}>
+                        <TableRow>
+                          <TableCell className="whitespace-nowrap">{new Date(h.closed_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</TableCell>
+                          {role !== "cashier" && <TableCell>{names[h.user_id] || "Staff"}</TableCell>}
+                          <TableCell className="text-right">{rupees(h.totals?.total_sales)}</TableCell>
+                          <TableCell className="text-right">{rupees(h.expected_cash)}</TableCell>
+                          <TableCell className="text-right">{rupees(h.counted_cash)}</TableCell>
+                          <TableCell><DiffBadge d={Number(h.difference)} />{h.note ? <span className="text-xs text-muted-foreground ml-2">{h.note}</span> : null}</TableCell>
+                          <TableCell><DiffBadge d={online.length ? onlineDiff : null} /></TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setExpanded(open ? null : h.id)} aria-expanded={open}>
+                              {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}<span className="sr-only">Details</span>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        {open && (
+                          <TableRow className="bg-muted/30 hover:bg-muted/30">
+                            <TableCell colSpan={role !== "cashier" ? 8 : 7} className="space-y-3 py-3">
+                              <MethodCheck rows={rows} />
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground">Opening {rupees(h.opening_cash)}</p>
+                                  {h.opening_breakdown?.cash ? <CountSummary count={h.opening_breakdown.cash} /> : <p className="text-xs text-muted-foreground">Not counted by notes and coins.</p>}
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground">Closing {rupees(h.counted_cash)}</p>
+                                  {h.closing_breakdown?.cash ? <CountSummary count={h.closing_breakdown.cash} /> : <p className="text-xs text-muted-foreground">Not counted by notes and coins.</p>}
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
