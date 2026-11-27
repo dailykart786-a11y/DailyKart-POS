@@ -15,6 +15,10 @@ import { AddCustomerDialog } from "@/components/AddCustomerDialog";
 import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
+  DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
+} from "@/lib/invoice";
+import {
   Table,
   TableBody,
   TableCell,
@@ -32,6 +36,7 @@ interface Product {
   gst_rate: number | null;
   category: string | null;
   image_url: string | null;
+  hsn_code?: string | null;
 }
 
 interface Customer {
@@ -83,11 +88,82 @@ export function SalesManager() {
   const [lastSale, setLastSale] = useState<any | null>(null);
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
   const [paymentSettings, setPaymentSettings] = useState<{ upi_vpa: string; payee_name?: string } | null>(null);
+  const [storeDetails, setStoreDetails] = useState<StoreDetails>(DEFAULT_STORE);
+  const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     fetchData();
     fetchPaymentSettings();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    getMyLocationId(user.id)
+      .then(fetchStoreDetails)
+      .then(setStoreDetails)
+      .catch(() => setStoreDetails(DEFAULT_STORE));
+  }, [user]);
+
+  // Build the printable bill from what was actually saved
+  const buildLastInvoice = async (sale: any, items: CartItem[]): Promise<Invoice> => {
+    let lines: InvoiceLine[] = items.map(item => makeLine({
+      name: item.product.name,
+      hsn: item.product.hsn_code,
+      quantity: item.quantity,
+      rate: item.product.price,
+      discountPercent: item.discount,
+      gstRate: item.product.gst_rate,
+    }));
+    let customerName: string | null = null;
+    let customerGstin: string | null = null;
+    let store = storeDetails;
+    try {
+      const [savedItems, customerRes, saleStore] = await Promise.all([
+        supabase.from('sale_items').select('*').eq('sale_id', sale.id),
+        sale.customer_id
+          ? supabase.from('customers').select('*').eq('id', sale.customer_id).maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        sale.location_id ? fetchStoreDetails(sale.location_id) : Promise.resolve(storeDetails),
+      ]);
+      store = saleStore;
+      const c = customerRes.data as Record<string, any> | null;
+      customerName = c?.name || null;
+      customerGstin = c?.gstin || null;
+      const rows = (savedItems.data || []) as Record<string, any>[];
+      if (rows.length === items.length) {
+        lines = rows.map(row => {
+          const item = items.find(i => i.product.id === row.product_id);
+          const gstAmount = Number(row.gst_amount || 0);
+          const total = Number(row.total_price || 0);
+          const taxable = Math.round((total - gstAmount) * 100) / 100;
+          return {
+            name: item?.product.name || 'Item',
+            hsn: row.hsn_code ?? item?.product.hsn_code ?? null,
+            quantity: Number(row.quantity),
+            rate: Number(row.unit_price),
+            discountPercent: Number(row.discount_percent ?? item?.discount ?? 0),
+            taxable,
+            gstRate: Number(row.gst_rate ?? item?.product.gst_rate ?? 0),
+            gstAmount,
+            total,
+          };
+        });
+      }
+    } catch (e) {
+      console.warn('Could not load saved bill details, using cart values', e);
+    }
+    return buildInvoice({
+      store,
+      invoiceNumber: sale.invoice_number,
+      createdAt: sale.created_at,
+      paymentMethod: sale.payment_method,
+      customerName,
+      customerGstin,
+      interstate: !!sale.is_interstate,
+      lines,
+      total: Number(sale.total_amount),
+    });
+  };
 
   const fetchData = async () => {
     try {
@@ -335,8 +411,11 @@ export function SalesManager() {
       });
 
       // Store last sale for printing/sharing
+      const soldItems = cart;
       setLastSale(sale);
-      setLastSaleItems(cart);
+      setLastSaleItems(soldItems);
+      setLastInvoice(null);
+      buildLastInvoice(sale, soldItems).then(setLastInvoice);
 
       // Reset cart and form
       setCart([]);
@@ -648,39 +727,9 @@ export function SalesManager() {
                 <span>₹{Number(lastSale.total_amount).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex gap-2">
-                <Button className="flex-1" onClick={() => {
-                  const printArea = document.getElementById('print-area');
-                  if (printArea) {
-                    const printWindow = window.open('', '_blank');
-                    if (printWindow) {
-                      printWindow.document.write(`
-                        <html>
-                          <head>
-                            <title>Invoice - ${lastSale.invoice_number}</title>
-                            <style>
-                              @media print {
-                                body { margin: 0; padding: 0; font-family: monospace; }
-                                .print-content { width: 80mm; font-size: 12px; }
-                                .center { text-align: center; }
-                                .bold { font-weight: bold; }
-                                .dashed { border-top: 1px dashed #000; margin: 8px 0; }
-                                .flex { display: flex; justify-content: space-between; }
-                                .mb-1 { margin-bottom: 4px; }
-                                .mb-2 { margin-bottom: 8px; }
-                                .small { font-size: 10px; }
-                              }
-                            </style>
-                          </head>
-                          <body>
-                            ${printArea.innerHTML}
-                          </body>
-                        </html>
-                      `);
-                      printWindow.document.close();
-                      printWindow.focus();
-                      printWindow.print();
-                      printWindow.close();
-                    }
+                <Button className="flex-1" disabled={!lastInvoice} onClick={() => {
+                  if (lastInvoice && !printReceipt(lastInvoice)) {
+                    toast({ title: "Pop-up blocked", description: "Allow pop-ups for this site to print bills", variant: "destructive" });
                   }
                 }}>
                   Print 80mm Invoice
@@ -694,15 +743,16 @@ export function SalesManager() {
                       unit_price: calculateItemTotal(item) / item.quantity,
                       total_price: calculateItemTotal(item)
                     })),
-                    subtotal: subtotal,
-                    tax_amount: totalGST,
+                    subtotal: lastInvoice?.taxable ?? 0,
+                    tax_amount: lastInvoice?.totalTax ?? Number(lastSale.tax_amount || 0),
                     total_amount: Number(lastSale.total_amount),
                     payment_method: lastSale.payment_method,
                     invoice_number: lastSale.invoice_number,
-                    created_at: lastSale.created_at
+                    created_at: lastSale.created_at,
+                    invoice: lastInvoice
                   }}
                   recipientPhone=""
-                  recipientName={customers.find(c => c.id === selectedCustomer)?.name || ""}
+                  recipientName={lastInvoice?.customerName || ""}
                 />
               </div>
             </CardContent>
@@ -733,96 +783,6 @@ export function SalesManager() {
             </div>
           </DialogContent>
         </Dialog>
-
-        {/* Hidden print area for 80mm thermal receipt */}
-        <div id="print-area" className="print-content" style={{display: 'none'}}>
-          {lastSale && (
-            <div>
-              {/* Header */}
-              <div className="center">
-                <div className="bold">DAILYKART POS</div>
-                <div className="small">Your Daily Shopping Partner</div>
-                <div className="small">Phone: +91-9966160298, +91-9381309140</div>
-                <div className="small">Email: dailykart786@gmail.com</div>
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Invoice Details */}
-              <div className="center">
-                <div className="bold">TAX INVOICE</div>
-                <div className="small">Invoice: {lastSale.invoice_number}</div>
-                <div className="small">
-                  Date: {new Date(lastSale.created_at || Date.now()).toLocaleDateString('en-IN')}
-                </div>
-                <div className="small">
-                  Time: {new Date(lastSale.created_at || Date.now()).toLocaleTimeString('en-IN')}
-                </div>
-                {customers.find(c => c.id === selectedCustomer) && (
-                  <div className="small">Customer: {customers.find(c => c.id === selectedCustomer)?.name}</div>
-                )}
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Items Header */}
-              <div className="item-row bold">
-                <div className="item-name">ITEM</div>
-                <div className="item-price">QTY x RATE = AMT</div>
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Items List */}
-              {lastSaleItems.map(item => (
-                <div key={item.product.id}>
-                  <div className="item-row">
-                    <div className="item-name">{item.product.name}</div>
-                    <div className="item-price">Rs{calculateItemTotal(item).toFixed(2)}</div>
-                  </div>
-                  <div className="item-row">
-                    <div className="item-details">
-                      {item.quantity} x Rs{item.product.price.toFixed(2)}
-                    </div>
-                    <div></div>
-                  </div>
-                </div>
-              ))}
-              
-              <div className="dashed"></div>
-              
-              {/* Totals */}
-              <div className="total-section">
-                <div className="total-row">
-                  <div>Subtotal:</div>
-                  <div>Rs{subtotal.toFixed(2)}</div>
-                </div>
-                <div className="total-row">
-                  <div>GST:</div>
-                  <div>Rs{totalGST.toFixed(2)}</div>
-                </div>
-                <div className="total-row grand-total">
-                  <div>TOTAL:</div>
-                  <div>Rs{Number(lastSale.total_amount).toFixed(2)}</div>
-                </div>
-                <div className="center">
-                  <div className="bold">Payment: {lastSale.payment_method?.toUpperCase()}</div>
-                </div>
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Footer */}
-              <div className="footer">
-                <div className="bold">THANK YOU FOR SHOPPING!</div>
-                <div>Visit us again for more great deals</div>
-                <div>We accept Cash, Card, UPI payments</div>
-                <div>Customer Care: +91-9966160298</div>
-                <div>Rate us on Google for better service</div>
-              </div>
-            </div>
-          )}
-        </div>
 
       </div>
     </div>

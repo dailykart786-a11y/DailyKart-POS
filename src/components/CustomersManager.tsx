@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { INDIAN_STATES, isValidGstin } from "@/lib/invoice";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +28,8 @@ interface Customer {
   address: string | null;
   loyalty_points: number | null;
   created_at: string | null;
+  gstin?: string | null;
+  state_code?: string | null;
 }
 
 export function CustomersManager() {
@@ -40,6 +44,8 @@ export function CustomersManager() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [stateCode, setStateCode] = useState("");
 
   useEffect(() => {
     fetchCustomers();
@@ -70,6 +76,8 @@ export function CustomersManager() {
     setEmail("");
     setPhone("");
     setAddress("");
+    setGstin("");
+    setStateCode("");
     setEditingCustomer(null);
     setShowForm(false);
   };
@@ -79,30 +87,36 @@ export function CustomersManager() {
     if (!user) return;
 
     try {
-      const customerData = {
+      const customerData: Record<string, any> = {
         name,
         email: email || null,
         phone: phone || null,
         address: address || null,
         loyalty_points: null
       };
-
-      if (editingCustomer) {
-        const { error } = await supabase
-          .from('customers')
-          .update(customerData)
-          .eq('id', editingCustomer.id);
-
-        if (error) throw error;
-        toast({ title: "Success", description: "Customer updated successfully" });
-      } else {
-        const { error } = await supabase
-          .from('customers')
-          .insert(customerData);
-
-        if (error) throw error;
-        toast({ title: "Success", description: "Customer added successfully" });
+      const cleanGstin = gstin.trim().toUpperCase();
+      if (cleanGstin && !isValidGstin(cleanGstin)) {
+        toast({ title: "Check GSTIN", description: "GSTIN should be 15 characters, like 36ABCDE1234F1Z5", variant: "destructive" });
+        return;
       }
+      // Only send GST fields when used, so saving works before the GST database update
+      if (cleanGstin || stateCode || editingCustomer?.gstin || editingCustomer?.state_code) {
+        customerData.gstin = cleanGstin || null;
+        customerData.state_code = stateCode || (cleanGstin ? cleanGstin.slice(0, 2) : null);
+      }
+
+      const save = (data: Record<string, any>) => editingCustomer
+        ? supabase.from('customers').update(data as any).eq('id', editingCustomer.id)
+        : supabase.from('customers').insert(data as any);
+
+      let { error } = await save(customerData);
+      if (error && 'gstin' in customerData && /gstin|state_code/.test(error.message || '')) {
+        const { gstin: _g, state_code: _s, ...rest } = customerData;
+        ({ error } = await save(rest));
+        if (!error) toast({ title: "GSTIN not saved", description: "Ask your admin to run the GST database update to store GSTIN" });
+      }
+      if (error) throw error;
+      toast({ title: "Success", description: editingCustomer ? "Customer updated successfully" : "Customer added successfully" });
 
       resetForm();
       fetchCustomers();
@@ -121,6 +135,8 @@ export function CustomersManager() {
     setEmail(customer.email || "");
     setPhone(customer.phone || "");
     setAddress(customer.address || "");
+    setGstin(customer.gstin || "");
+    setStateCode(customer.state_code || "");
     setShowForm(true);
   };
 
@@ -270,6 +286,33 @@ export function CustomersManager() {
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="Enter customer address"
                 />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="gstin">GSTIN (business customers)</Label>
+                  <Input
+                    id="gstin"
+                    value={gstin}
+                    onChange={(e) => {
+                      const v = e.target.value.toUpperCase().slice(0, 15);
+                      setGstin(v);
+                      if (/^[0-9]{2}/.test(v) && INDIAN_STATES.some(st => st.code === v.slice(0, 2))) setStateCode(v.slice(0, 2));
+                    }}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>State</Label>
+                  <Select value={stateCode} onValueChange={setStateCode}>
+                    <SelectTrigger><SelectValue placeholder="Same as shop" /></SelectTrigger>
+                    <SelectContent>
+                      {INDIAN_STATES.map(st => (
+                        <SelectItem key={st.code} value={st.code}>{st.code} - {st.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Other state means IGST on the bill</p>
+                </div>
               </div>
               <div className="flex gap-2">
                 <Button type="submit">
