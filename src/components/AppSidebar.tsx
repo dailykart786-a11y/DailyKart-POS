@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { 
+  Boxes,
   LayoutDashboard, 
   ShoppingCart, 
   Package, 
@@ -35,6 +36,7 @@ const navigationItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, permission: null },
   { title: "Sales", url: "/sales", icon: ShoppingCart, permission: "sales" },
   { title: "Products", url: "/products", icon: Package, permission: "products" },
+  { title: "Stock", url: "/stock", icon: Boxes, permission: "products" },
   { title: "Purchases", url: "/purchases", icon: Truck, permission: "purchases" },
   { title: "Day closing", url: "/register", icon: Landmark, permission: "register" },
   { title: "Khata", url: "/khata", icon: BookOpen, permission: "khata" },
