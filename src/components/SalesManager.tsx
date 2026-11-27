@@ -321,6 +321,11 @@ export function SalesManager() {
       });
       return;
     }
+    if (paymentMethod === 'credit' && selectedCustomer) {
+      // Udhaar for a known customer: no need to ask for details again
+      processSale(selectedCustomer);
+      return;
+    }
     setShowCustomerDialog(true);
   };
 
@@ -737,7 +742,7 @@ export function SalesManager() {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="card">Card</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
-                    <SelectItem value="credit">Credit</SelectItem>
+                    <SelectItem value="credit">Credit (Udhaar)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -835,6 +840,10 @@ export function SalesManager() {
           onOpenChange={setShowCustomerDialog}
           onSubmit={handleCustomerSubmit}
           onSkip={async () => {
+            if (paymentMethod === 'credit') {
+              toast({ title: "Customer needed", description: "Udhaar (credit) needs the customer's name so it shows in Khata", variant: "destructive" });
+              return;
+            }
             setCustomerEntryLoading(true);
             const saved = await processSale(null);
             setCustomerEntryLoading(false);
