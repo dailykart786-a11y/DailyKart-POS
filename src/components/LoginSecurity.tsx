@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { markManualSignOut } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { LogOut, ShieldCheck } from "lucide-react";
 
@@ -70,6 +71,7 @@ export function LoginSecurity() {
 
   const signOutEverywhere = async () => {
     setBusy(true);
+    markManualSignOut();
     const { error } = await supabase.auth.signOut({ scope: "global" });
     setBusy(false);
     if (error) toast({ title: "Not signed out", description: error.message, variant: "destructive" });

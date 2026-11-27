@@ -1,3 +1,5 @@
+import { createContext, Suspense, useContext, useState } from "react";
+import { Outlet, useLocation } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { UserProfile } from "@/components/UserProfile";
@@ -21,12 +23,43 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { LoginSecurity } from "@/components/LoginSecurity";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { readQueue } from "@/lib/offline";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { PageHeading } from "@/components/PageHeading";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PageSkeleton, TopProgressBar } from "@/components/feedback";
+import { readSidebarOpen, saveSidebarOpen } from "@/hooks/useNavPrefs";
+
+// True inside the app frame, so pages that still wrap themselves in
+// <Layout> don't draw a second frame.
+const InShell = createContext(false);
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
+/** Older pages call this; inside the app frame it just shows the page. */
 export function Layout({ children }: LayoutProps) {
+  const inShell = useContext(InShell);
+  if (inShell) return <>{children}</>;
+  return <AppFrame>{children}</AppFrame>;
+}
+
+/** The frame for every signed-in page: sidebar, header, breadcrumbs. Pages load inside it. */
+export function AppShell() {
+  const { pathname } = useLocation();
+  return (
+    <AppFrame>
+      <ErrorBoundary resetKey={pathname}>
+        <Suspense fallback={<><TopProgressBar /><PageSkeleton /></>}>
+          <Outlet />
+        </Suspense>
+      </ErrorBoundary>
+    </AppFrame>
+  );
+}
+
+function AppFrame({ children }: LayoutProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
   const { user, signOut } = useAuth();
   const { stores, isAdmin, selectedStoreId, setSelectedStoreId, homeStoreId } = useStore();
   const homeStoreName = stores.find(s => s.id === homeStoreId)?.name;
@@ -48,16 +81,17 @@ export function Layout({ children }: LayoutProps) {
   };
 
   return (
-    <SidebarProvider>
+    <InShell.Provider value={true}>
+    <SidebarProvider open={sidebarOpen} onOpenChange={(o) => { setSidebarOpen(o); saveSidebarOpen(o); }}>
       <div className="min-h-screen flex w-full">
         <AppSidebar />
         
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <header className="h-16 border-b bg-card flex items-center justify-between px-4 md:px-6 box-content pt-[env(safe-area-inset-top)]">
+          <header className="sticky top-0 z-30 h-16 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 flex items-center justify-between px-4 md:px-6 box-content pt-[env(safe-area-inset-top)] print:hidden">
             <div className="flex items-center gap-2 md:gap-4">
-              <SidebarTrigger />
-              <div className="flex items-center gap-2 md:gap-3">
+              <SidebarTrigger aria-label="Show or hide the menu" title="Menu (Ctrl+B)" />
+              <div className="flex items-center gap-2 md:gap-3 md:hidden">
                 <img src="/lovable-uploads/8339ecb2-3c19-468f-b433-6b7bcb690cf2.png" alt="DailyKart Logo" className="h-6 w-6 md:h-8 md:w-8" />
                 <div className="hidden min-[420px]:flex items-center gap-1 md:gap-2">
                   <h1 className="text-lg md:text-xl font-bold text-primary">DailyKart POS</h1>
@@ -94,6 +128,7 @@ export function Layout({ children }: LayoutProps) {
               </div>
               
               <InstallAppButton />
+              <ThemeToggle />
               <LanguageToggle />
               <AlertsBell />
               <DropdownMenu>
@@ -124,11 +159,13 @@ export function Layout({ children }: LayoutProps) {
           <OfflineStatus />
 
           {/* Main Content */}
-          <main className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 bg-secondary/30 overflow-auto">
+          <main id="main" className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 bg-secondary/30 overflow-auto">
+            <PageHeading />
             {children}
           </main>
         </div>
       </div>
     </SidebarProvider>
+    </InShell.Provider>
   );
 }

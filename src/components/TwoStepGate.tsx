@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { markManualSignOut } from "@/hooks/useAuth";
 import { ShieldCheck } from "lucide-react";
+import { FullPageLoader } from "@/components/feedback/FullPageLoader";
 
 /**
  * Asks for the authenticator code when the person has two-step login on and
@@ -31,7 +33,7 @@ export function TwoStepGate({ userId, children }: { userId: string; children: Re
   }, [userId]);
 
   if (needed === null) {
-    return <div className="min-h-screen flex items-center justify-center bg-secondary/30"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
+    return <FullPageLoader />;
   }
   if (!needed) return <>{children}</>;
 
@@ -67,7 +69,7 @@ export function TwoStepGate({ userId, children }: { userId: string; children: Re
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy || code.length !== 6}>Continue</Button>
-            <Button type="button" variant="ghost" className="w-full" onClick={() => supabase.auth.signOut()}>Sign out</Button>
+            <Button type="button" variant="ghost" className="w-full" onClick={() => { markManualSignOut(); supabase.auth.signOut(); }}>Sign out</Button>
           </form>
         </CardContent>
       </Card>
