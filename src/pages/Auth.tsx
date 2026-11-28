@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 import { ShoppingCart, UserPlus } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { isLocalMode } from '@/integrations/supabase/client';
 
 export default function Auth() {
   const { user, signIn, signUp, loading } = useAuth();
@@ -64,7 +64,7 @@ export default function Auth() {
         
         toast({
           title: 'Account created!',
-          description: 'Please check your email to verify your account.',
+        description: isLocalMode ? 'You are signed in. Your local account is ready.' : 'Please check your email to verify your account.',
         });
       }
     } catch (error) {
@@ -97,6 +97,11 @@ export default function Auth() {
           <CardTitle>Welcome to DailyKart</CardTitle>
         </CardHeader>
         <CardContent>
+          {isLocalMode && (
+            <div className="mb-4 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+              Local mode: accounts and POS data are stored in this browser. The first account created becomes the administrator.
+            </div>
+          )}
           {/* Regular sign-in/sign-up tabs */}
             <Tabs defaultValue="signin" className="w-full">
               <TabsList className="grid w-full grid-cols-2">

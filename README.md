@@ -6,6 +6,19 @@
 
 ## How can I edit this code?
 
+## Local development database
+
+The app uses a browser-local IndexedDB database by default. Accounts, roles, inventory, customers, sales, expenses, and payment settings stay in the browser profile where they were created; they are not shared with other devices and will be removed if that site's browser data is cleared. The first account created in a fresh local database is the administrator. Later sign-ups start as cashiers, and an administrator can change roles from User Management.
+
+Run the app locally with:
+
+```sh
+npm ci
+npm run dev
+```
+
+To use Supabase later, set `VITE_DATA_PROVIDER=supabase`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` in the deployment environment. Vercel can host the frontend, while Supabase provides shared authentication and database storage.
+
 There are several ways of editing your application.
 
 **Use Lovable**

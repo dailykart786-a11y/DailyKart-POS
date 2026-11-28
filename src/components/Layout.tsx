@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { isLocalMode } from "@/integrations/supabase/client";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -43,6 +44,7 @@ export function Layout({ children }: LayoutProps) {
                 <div className="flex items-center gap-1 md:gap-2">
                   <h1 className="text-lg md:text-xl font-bold text-primary">DailyKart POS</h1>
                   <span className="text-xs bg-accent text-accent-foreground px-1.5 py-0.5 md:px-2 md:py-1 rounded">PRO</span>
+                  {isLocalMode && <span className="text-xs border rounded px-1.5 py-0.5 text-muted-foreground">LOCAL DATA</span>}
                 </div>
               </div>
             </div>

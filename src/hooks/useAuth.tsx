@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import { isLocalMode, supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: User | null;
@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     });
 
-    // Create default user role for new signups  
-    if (!error && data.user) {
+    // Local sign-up creates the first account as admin and later accounts as cashiers.
+    if (!isLocalMode && !error && data.user) {
       try {
         await supabase
           .from('user_roles')
