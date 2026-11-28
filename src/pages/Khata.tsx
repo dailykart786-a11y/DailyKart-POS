@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,9 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { toast } from "@/hooks/use-toast";
 import { customerLedger, withRunning, dueInfo, printStatement, type LedgerRow } from "@/lib/statement";
 import { istToday } from "@/lib/dailySummary";
-import { BookOpen, MessageCircle, IndianRupee, Search, ArrowLeft, Printer, Undo2, Settings2 } from "lucide-react";
+import { BookOpen, MessageCircle, IndianRupee, Search, ArrowLeft, Printer, Undo2, Settings2, Download } from "lucide-react";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 
 interface Balance {
   customer_id: string;
@@ -63,6 +65,7 @@ export default function Khata() {
   const [method, setMethod] = useState("cash");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const statementRef = useRef<HTMLDivElement>(null);
 
   const loadBalances = async () => {
     setLoading(true);
@@ -214,8 +217,38 @@ export default function Khata() {
       return;
     }
     const to = phone.length === 10 ? `91${phone}` : phone;
-    const msg = `Namaste ${b.name} ji,\n\nYour pending amount at our shop is ${rupees(b.balance)}.\nPlease pay at your convenience (cash or UPI).\n\nThank you!`;
+    const msg = `Hello ${b.name},\n\nYour pending amount at our shop is ${rupees(b.balance)}.\nPlease pay at your convenience (cash or UPI).\n\nThank you!`;
     window.open(`https://wa.me/${to}?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+
+  /** Generates a PDF image of the customer's statement/ledger so it can be
+   *  downloaded and attached to a WhatsApp message manually. WhatsApp's free
+   *  web link only supports text, so the image must be attached separately. */
+  const downloadStatementImage = async () => {
+    if (!statementRef.current || !selected) return;
+    try {
+      const canvas = await html2canvas(statementRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      const fileName = `statement-${selected.name.replace(/\s+/g, "_")}-${selected.balance}.pdf`;
+      pdf.save(fileName);
+      toast({ title: "Statement saved", description: "Open WhatsApp and attach this PDF to your message." });
+    } catch (e: any) {
+      toast({ title: "Could not save statement", description: e?.message || "Try again", variant: "destructive" });
+    }
   };
 
   const overdueOf = (b: Balance) => (b.balance > 0 ? dueInfo(b.oldest_due_at, b.credit_days) : null);
@@ -348,69 +381,82 @@ export default function Khata() {
                 </CardContent>
               </Card>
             )}
-            <Card>
-              <CardHeader><CardTitle className="text-lg">Statement</CardTitle></CardHeader>
-              <CardContent className="flex flex-wrap items-end gap-2">
-                <div className="space-y-2">
-                  <Label htmlFor="st-from">From</Label>
-                  <Input id="st-from" type="date" className="w-44" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="st-to">To</Label>
-                  <Input id="st-to" type="date" className="w-44" value={to} onChange={(e) => e.target.value && setTo(e.target.value)} />
-                </div>
-                <Button variant="outline" className="gap-2" onClick={printIt}><Printer className="h-4 w-4" /> Print statement</Button>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader><CardTitle className="text-lg">Ledger</CardTitle></CardHeader>
-              <CardContent className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Entry</TableHead>
-                      <TableHead className="text-right">Udhaar</TableHead>
-                      <TableHead className="text-right">Paid</TableHead>
-                      <TableHead className="text-right">Balance</TableHead>
-                      {canManage && <TableHead></TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {ledger.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No entries yet</TableCell></TableRow>
-                    ) : ledger.map((r) => (
-                      <TableRow key={`${r.kind}-${r.id}`} className={r.reversed ? "text-muted-foreground" : ""}>
-                        <TableCell className="whitespace-nowrap">{r.kind === "opening" ? "Opening" : new Date(r.at).toLocaleDateString("en-IN")}</TableCell>
-                        <TableCell>
-                          <span className={r.reversed ? "line-through" : ""}>{r.label}</span>
-                          {r.reversed && <div className="text-xs">Reversed {new Date(r.reversed.at).toLocaleDateString("en-IN")}{r.reversed.reason ? `: ${r.reversed.reason}` : ""}</div>}
-                          {reversing === r.paymentId && (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <Input className="h-8 w-56" aria-label="Why reverse" placeholder="Why? e.g. entered twice" value={reverseReason} onChange={(e) => setReverseReason(e.target.value)} />
-                              <Button size="sm" variant="destructive" disabled={saving} onClick={() => reversePayment(r.paymentId!)}>Reverse</Button>
-                              <Button size="sm" variant="ghost" onClick={() => setReversing(null)}>Cancel</Button>
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">{r.debit ? rupees(r.debit) : ""}</TableCell>
-                        <TableCell className={`text-right ${r.reversed ? "line-through" : "text-green-600"}`}>{r.credit ? rupees(r.credit) : ""}</TableCell>
-                        <TableCell className="text-right font-medium">{rupees(r.running)}</TableCell>
-                        {canManage && (
-                          <TableCell className="text-right">
-                            {r.kind === "payment" && !r.reversed && reversing !== r.paymentId && (
-                              <Button size="sm" variant="ghost" aria-label="Reverse this payment" title="Reverse a wrong payment" onClick={() => { setReversing(r.paymentId!); setReverseReason(""); }}>
-                                <Undo2 className="h-4 w-4" />
-                              </Button>
+            <div ref={statementRef} className="space-y-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
+                  <CardTitle className="text-lg">Statement</CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={downloadStatementImage}
+                    disabled={!statementRef.current}
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download image
+                  </Button>
+                </CardHeader>
+                <CardContent className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="st-from">From</Label>
+                    <Input id="st-from" type="date" className="w-44" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="st-to">To</Label>
+                    <Input id="st-to" type="date" className="w-44" value={to} onChange={(e) => e.target.value && setTo(e.target.value)} />
+                  </div>
+                  <Button variant="outline" className="gap-2" onClick={printIt}><Printer className="h-4 w-4" /> Print statement</Button>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle className="text-lg">Ledger</CardTitle></CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Entry</TableHead>
+                        <TableHead className="text-right">Udhaar</TableHead>
+                        <TableHead className="text-right">Paid</TableHead>
+                        <TableHead className="text-right">Balance</TableHead>
+                        {canManage && <TableHead></TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {ledger.length === 0 ? (
+                        <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No entries yet</TableCell></TableRow>
+                      ) : ledger.map((r) => (
+                        <TableRow key={`${r.kind}-${r.id}`} className={r.reversed ? "text-muted-foreground" : ""}>
+                          <TableCell className="whitespace-nowrap">{r.kind === "opening" ? "Opening" : new Date(r.at).toLocaleDateString("en-IN")}</TableCell>
+                          <TableCell>
+                            <span className={r.reversed ? "line-through" : ""}>{r.label}</span>
+                            {r.reversed && <div className="text-xs">Reversed {new Date(r.reversed.at).toLocaleDateString("en-IN")}{r.reversed.reason ? `: ${r.reversed.reason}` : ""}</div>}
+                            {reversing === r.paymentId && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Input className="h-8 w-56" aria-label="Why reverse" placeholder="Why? e.g. entered twice" value={reverseReason} onChange={(e) => setReverseReason(e.target.value)} />
+                                <Button size="sm" variant="destructive" disabled={saving} onClick={() => reversePayment(r.paymentId!)}>Reverse</Button>
+                                <Button size="sm" variant="ghost" onClick={() => setReversing(null)}>Cancel</Button>
+                              </div>
                             )}
                           </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                          <TableCell className="text-right">{r.debit ? rupees(r.debit) : ""}</TableCell>
+                          <TableCell className={`text-right ${r.reversed ? "line-through" : "text-green-600"}`}>{r.credit ? rupees(r.credit) : ""}</TableCell>
+                          <TableCell className="text-right font-medium">{rupees(r.running)}</TableCell>
+                          {canManage && (
+                            <TableCell className="text-right">
+                              {r.kind === "payment" && !r.reversed && reversing !== r.paymentId && (
+                                <Button size="sm" variant="ghost" aria-label="Reverse this payment" title="Reverse a wrong payment" onClick={() => { setReversing(r.paymentId!); setReverseReason(""); }}>
+                                  <Undo2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         ) : (
           <>
@@ -468,7 +514,7 @@ export default function Khata() {
                           <TableCell className="text-right">
                             {b.balance > 0 ? <span className="font-semibold text-destructive">{rupees(b.balance)}</span>
                               : b.balance < 0 ? <Badge variant="outline">Advance {rupees(-b.balance)}</Badge>
-                              : <Badge variant="secondary">Settled</Badge>}
+                                : <Badge variant="secondary">Settled</Badge>}
                             {(() => { const d = overdueOf(b); return d && d.overdueDays > 0 ? <div><Badge variant="destructive">{d.overdueDays}d overdue</Badge></div> : null; })()}
                             {b.credit_limit != null && b.balance > b.credit_limit && <div className="text-xs text-destructive">over limit</div>}
                           </TableCell>
