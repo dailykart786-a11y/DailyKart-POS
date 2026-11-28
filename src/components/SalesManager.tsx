@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
@@ -12,8 +12,33 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { CustomerEntryDialog } from "@/components/CustomerEntryDialog";
 import { WhatsAppIntegration } from "@/components/WhatsAppIntegration";
 import { AddCustomerDialog } from "@/components/AddCustomerDialog";
-import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator } from "lucide-react";
+import { Plus, Minus, Search, ShoppingCart, CreditCard, Smartphone, Trash2, Calculator, ScanLine } from "lucide-react";
+import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
+import { PauseCircle, PlayCircle } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const HELD_KEY = "dailykart-held-bills";
+interface HeldBill { id: string; at: string; items: { productId: string; quantity: number; discount: number }[]; customerId: string; label: string; }
+const readHeld = (): HeldBill[] => { try { return JSON.parse(localStorage.getItem(HELD_KEY) || "[]"); } catch { return []; } };
+const writeHeld = (bills: HeldBill[]) => { try { localStorage.setItem(HELD_KEY, JSON.stringify(bills)); } catch { /* storage off */ } };
+const SPLIT_KEYS = ["cash", "upi", "card", "credit"] as const;
+type SplitKey = typeof SPLIT_KEYS[number];
 import { QRCodeSVG } from "qrcode.react";
+import { useStore, inStore } from "@/hooks/useStore";
+import {
+  QueuedSale, addToQueue, cacheGet, cacheSet, isNetworkError, isOffline, newClientRef, offlineBillNumber,
+} from "@/lib/offline";
+import { Batch, estimateLeft, todayIso } from "@/lib/batches";
+import { Offer, bestOffer, billDiscountPercent, maxPointsForBill, pointsPercent, stackDiscount } from "@/lib/offers";
+import { useUserRole } from "@/hooks/useUserRole";
+import { getReceiptWidth, setReceiptWidth, type ReceiptWidth } from "@/lib/invoice";
+import { isLoose, looseUnit, parseScaleBarcode, samePlu, type ScaleSettings } from "@/lib/scale";
+import {
+  buildInvoice, fetchStoreDetails, getMyLocationId, makeLine, printReceipt,
+  DEFAULT_STORE, type Invoice, type InvoiceLine, type StoreDetails,
+} from "@/lib/invoice";
 import {
   Table,
   TableBody,
@@ -32,6 +57,11 @@ interface Product {
   gst_rate: number | null;
   category: string | null;
   image_url: string | null;
+  hsn_code?: string | null;
+  barcode?: string | null;
+  // loose goods (newer database only)
+  sold_by?: string | null;
+  plu_code?: string | null;
 }
 
 interface Customer {
@@ -47,7 +77,11 @@ interface CartItem {
   product: Product;
   quantity: number;
   discount: number;
+  /** Set when the discount came from an offer */
+  offerName?: string;
 }
+
+interface LoyaltyInfo { balance: number; pointValue: number; minRedeem: number; }
 
 interface Sale {
   id: string;
@@ -69,6 +103,9 @@ interface SaleItem {
 
 export function SalesManager() {
   const { user } = useAuth();
+  const { isAdmin, workingStoreId, newRecordFields } = useStore();
+  // Admins bill for the selected store (or their own store when "All stores" is picked)
+  const billingStoreFilter = isAdmin ? workingStoreId : null;
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -83,17 +120,169 @@ export function SalesManager() {
   const [lastSale, setLastSale] = useState<any | null>(null);
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
   const [paymentSettings, setPaymentSettings] = useState<{ upi_vpa: string; payee_name?: string } | null>(null);
+  const [storeDetails, setStoreDetails] = useState<StoreDetails>(DEFAULT_STORE);
+  const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  // Phones and tablets: don't pop the keyboard up by itself
+  const touchDevice = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+  // The "Scan a barcode" shortcut on the installed app opens the camera straight away
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get('scan') === '1') setScannerOpen(true);
+    } catch { /* ignore */ }
+  }, []);
+  const [split, setSplit] = useState<Record<SplitKey, string>>({ cash: "", upi: "", card: "", credit: "" });
+  const [heldBills, setHeldBills] = useState<HeldBill[]>(() => readHeld());
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [loyalty, setLoyalty] = useState<LoyaltyInfo | null>(null);
+  const [usePoints, setUsePoints] = useState(0);
+  const [pointsInput, setPointsInput] = useState("");
+  const { role } = useUserRole();
+  // Discount on the whole bill (typed by the cashier) and coupon
+  const [billDiscKind, setBillDiscKind] = useState<"percent" | "flat">("percent");
+  const [billDiscValue, setBillDiscValue] = useState("");
+  const [coupon, setCoupon] = useState<{ id: string; code: string; kind: "percent" | "flat"; value: number; min_bill: number | null } | null>(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [maxDiscountPct, setMaxDiscountPct] = useState<number | null>(null);
+  const [scale, setScale] = useState<ScaleSettings | null>(null);
+  const [approval, setApproval] = useState<{ id: string; pct: number } | null>(null);
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const [approvalPin, setApprovalPin] = useState("");
+  const [approving, setApproving] = useState(false);
+  const [topSellerIds, setTopSellerIds] = useState<string[]>([]);
+  const [receiptWidth, setReceiptWidthState] = useState<ReceiptWidth>(() => getReceiptWidth());
+
+  // Most a cashier may discount without a manager (optional setting)
+  useEffect(() => {
+    let cancelled = false;
+    const storeId = billingStoreFilter;
+    (async () => {
+      const id = storeId || (user ? await getMyLocationId(user.id).catch(() => null) : null);
+      if (!id || cancelled) return;
+      const { data, error } = await supabase.from('locations').select('max_discount_pct' as any).eq('id', id).maybeSingle();
+      if (!cancelled && !error) setMaxDiscountPct((data as any)?.max_discount_pct == null ? null : Number((data as any).max_discount_pct));
+      // Weighing-scale labels (optional: needs the database update)
+      const sc = await supabase.from('locations').select('scale_prefix, scale_value, scale_code_digits' as any).eq('id', id).maybeSingle();
+      const row = (sc.data || {}) as any;
+      if (!cancelled) setScale(!sc.error && row.scale_prefix ? { prefix: String(row.scale_prefix), value: row.scale_value === 'price' ? 'price' : 'weight', codeDigits: Number(row.scale_code_digits) || 5 } : null);
+    })().catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [billingStoreFilter, user]);
+
+  // Best sellers of the last 30 days for one-tap adding
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc('top_sellers' as any, { p_location_id: billingStoreFilter, p_days: 30, p_limit: 8 } as any)
+      .then(({ data, error }: any) => { if (!cancelled && !error) setTopSellerIds(((data || []) as any[]).map(r => r.product_id)); }, () => undefined);
+    return () => { cancelled = true; };
+  }, [billingStoreFilter]);
+
+  // Offers for this store (optional: needs the database update)
+  useEffect(() => {
+    let cancelled = false;
+    inStore(supabase.from('offers' as any).select('*').eq('is_active', true), billingStoreFilter)
+      .then(({ data, error }: any) => { if (!cancelled && !error) setOffers(((data || []) as any[]).map(o => ({ ...o, percent: Number(o.percent) }))); }, () => undefined);
+    return () => { cancelled = true; };
+  }, [billingStoreFilter]);
+
+  // Loyalty points of the chosen customer
+  useEffect(() => {
+    setUsePoints(0);
+    setPointsInput("");
+    setLoyalty(null);
+    if (!selectedCustomer) return;
+    let cancelled = false;
+    supabase.from('customer_loyalty' as any).select('*').eq('customer_id', selectedCustomer).maybeSingle()
+      .then(({ data, error }: any) => {
+        if (cancelled || error || !data || !data.loyalty_enabled) return;
+        setLoyalty({ balance: Number(data.balance) || 0, pointValue: Number(data.loyalty_point_value) || 0, minRedeem: Number(data.loyalty_min_redeem) || 0 });
+      }, () => undefined);
+    return () => { cancelled = true; };
+  }, [selectedCustomer]);
 
   useEffect(() => {
     fetchData();
     fetchPaymentSettings();
-  }, []);
+  }, [billingStoreFilter]);
+
+  useEffect(() => {
+    if (!user) return;
+    getMyLocationId(user.id)
+      .then(fetchStoreDetails)
+      .then((d) => { setStoreDetails(d); cacheSet('store', user.id, d); })
+      .catch(() => setStoreDetails(cacheGet<StoreDetails>('store', user.id) || DEFAULT_STORE));
+  }, [user]);
+
+  // Build the printable bill from what was actually saved
+  const buildLastInvoice = async (sale: any, items: CartItem[]): Promise<Invoice> => {
+    let lines: InvoiceLine[] = items.map(item => makeLine({
+      name: item.product.name,
+      hsn: item.product.hsn_code,
+      quantity: item.quantity,
+      rate: item.product.price,
+      discountPercent: lineDiscount(item),
+      gstRate: item.product.gst_rate,
+    }));
+    let customerName: string | null = null;
+    let customerGstin: string | null = null;
+    let store = storeDetails;
+    try {
+      const [savedItems, customerRes, saleStore] = await Promise.all([
+        supabase.from('sale_items').select('*').eq('sale_id', sale.id),
+        sale.customer_id
+          ? supabase.from('customers').select('*').eq('id', sale.customer_id).maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        sale.location_id ? fetchStoreDetails(sale.location_id) : Promise.resolve(storeDetails),
+      ]);
+      store = saleStore;
+      const c = customerRes.data as Record<string, any> | null;
+      customerName = c?.name || null;
+      customerGstin = c?.gstin || null;
+      const rows = (savedItems.data || []) as Record<string, any>[];
+      if (rows.length === items.length) {
+        lines = rows.map(row => {
+          const item = items.find(i => i.product.id === row.product_id);
+          const gstAmount = Number(row.gst_amount || 0);
+          const total = Number(row.total_price || 0);
+          const taxable = Math.round((total - gstAmount) * 100) / 100;
+          return {
+            name: item?.product.name || 'Item',
+            hsn: row.hsn_code ?? item?.product.hsn_code ?? null,
+            quantity: Number(row.quantity),
+            rate: Number(row.unit_price),
+            discountPercent: Number(row.discount_percent ?? item?.discount ?? 0),
+            taxable,
+            gstRate: Number(row.gst_rate ?? item?.product.gst_rate ?? 0),
+            gstAmount,
+            total,
+          };
+        });
+      }
+    } catch (e) {
+      console.warn('Could not load saved bill details, using cart values', e);
+    }
+    return buildInvoice({
+      store,
+      invoiceNumber: sale.invoice_number,
+      createdAt: sale.created_at,
+      paymentMethod: sale.payment_split
+        ? Object.entries(sale.payment_split as Record<string, number>)
+            .map(([k, v]) => `${k === 'credit' ? 'udhaar' : k} ${Number(v).toFixed(2)}`).join(' + ')
+        : sale.payment_method,
+      customerName,
+      customerGstin,
+      interstate: !!sale.is_interstate,
+      lines,
+      total: Number(sale.total_amount),
+    });
+  };
 
   const fetchData = async () => {
     try {
       const [productsRes, customersRes] = await Promise.all([
-        supabase.from('products').select('*').eq('is_active', true),
-        supabase.from('customers').select('*')
+        inStore(supabase.from('products').select('*').eq('is_active', true), billingStoreFilter),
+        inStore(supabase.from('customers').select('*'), billingStoreFilter)
       ]);
 
       if (productsRes.error) throw productsRes.error;
@@ -101,7 +290,18 @@ export function SalesManager() {
 
       setProducts(productsRes.data || []);
       setCustomers(customersRes.data || []);
+      if (user) {
+        cacheSet('products', user.id, productsRes.data || []);
+        cacheSet('customers', user.id, customersRes.data || []);
+      }
     } catch (error) {
+      // No internet: use the lists saved on this device last time
+      const saved = user && isNetworkError(error) ? cacheGet<Product[]>('products', user.id) : null;
+      if (saved) {
+        setProducts(saved);
+        setCustomers(cacheGet<Customer[]>('customers', user!.id) || []);
+        return;
+      }
       toast({
         title: "Error",
         description: "Failed to fetch data",
@@ -133,19 +333,114 @@ export function SalesManager() {
     }
   };
 
-  const addToCart = (product: Product) => {
-    const existingItem = cart.find(item => item.product.id === product.id);
-    
-    if (existingItem) {
-      setCart(cart.map(item =>
-        item.product.id === product.id
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      ));
-    } else {
-      setCart([...cart, { product, quantity: 1, discount: 0 }]);
+  // Products that probably still have expired pieces on the shelf
+  const [expiredStock, setExpiredStock] = useState<Record<string, string>>({});
+  const warnedExpired = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!products.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await inStore(
+          supabase.from('product_batches' as any).select('id, product_id, batch_no, expiry_date, quantity, created_at, cleared_at').is('cleared_at', null),
+          billingStoreFilter,
+        ).limit(2000);
+        if (error || cancelled) return;
+        const today = todayIso();
+        const by: Record<string, Batch[]> = {};
+        for (const b of (data || []) as any[]) (by[b.product_id] ||= []).push({ ...b, quantity: Number(b.quantity) });
+        const out: Record<string, string> = {};
+        for (const p of products) {
+          const list = by[p.id];
+          if (!list) continue;
+          const old = estimateLeft(list, p.stock_quantity ?? 0).find(b => b.left > 0 && b.expiry_date && b.expiry_date < today);
+          if (old) out[p.id] = old.expiry_date!;
+        }
+        setExpiredStock(out);
+      } catch { /* expiry warnings are optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, [products, billingStoreFilter]);
+
+  const addToCart = (product: Product, qty = 1) => {
+    if (expiredStock[product.id] && !warnedExpired.current.has(product.id)) {
+      warnedExpired.current.add(product.id);
+      toast({ title: "Check the expiry date", description: `Some ${product.name} expired on ${expiredStock[product.id]}. Give the customer a fresh one.` });
     }
+    setCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      const nextQty = Math.round(((existing?.quantity || 0) + qty) * 1000) / 1000;
+      const stock = product.stock_quantity ?? 0;
+      if (nextQty > stock) {
+        toast({
+          title: "Not enough stock",
+          description: `${product.name}: only ${stock} left`,
+          variant: "destructive"
+        });
+        return prev;
+      }
+      return existing
+        ? prev.map(item => item.product.id === product.id ? withOffer({ ...item, quantity: nextQty }) : item)
+        : [...prev, withOffer({ product, quantity: nextQty, discount: 0 })];
+    });
   };
+
+  // Find a product by exact barcode or SKU (what a scanner types)
+  const findByCode = (code: string) => {
+    const c = code.trim().toLowerCase();
+    if (!c) return undefined;
+    return products.find(p => (p.barcode || '').trim().toLowerCase() === c)
+      || products.find(p => p.sku.trim().toLowerCase() === c);
+  };
+
+  // Short line for the camera screen, for example "Added Maggi · ₹14 (2 in bill)"
+  const cartRef = useRef(cart);
+  cartRef.current = cart;
+  const addedText = (product: Product, qty: number) => {
+    const have = cartRef.current.find(i => i.product.id === product.id)?.quantity || 0;
+    const stock = product.stock_quantity ?? 0;
+    if (Math.round((have + qty) * 1000) / 1000 > stock) return `${product.name}: only ${stock} in stock`;
+    const now = Math.round((have + qty) * 1000) / 1000;
+    return `Added ${product.name} · ₹${product.price.toLocaleString('en-IN')}${now > 1 ? ` (${now} in bill)` : ''}`;
+  };
+
+  const addByCode = (code: string): string | false => {
+    const product = findByCode(code);
+    if (product) {
+      const text = addedText(product, 1);
+      addToCart(product);
+      return text;
+    }
+    // Label printed by a weighing scale: item code + weight (or price) inside the barcode
+    const label = parseScaleBarcode(code, scale);
+    const loose = label ? products.find(p => samePlu(p.plu_code, label.plu)) : undefined;
+    if (label && loose) {
+      const qty = label.grams != null ? label.grams / 1000 : (label.paise || 0) / 100 / (loose.price || 1);
+      const q = Math.round(qty * 1000) / 1000;
+      const text = addedText(loose, q);
+      addToCart(loose, q);
+      return text;
+    }
+    toast({ title: "Not found", description: `No product with barcode ${code}`, variant: "destructive" });
+    return false;
+  };
+
+  // Puts the best live offer on a line, unless the cashier typed their own discount
+  const withOffer = (item: CartItem): CartItem => {
+    if (item.discount > 0 && !item.offerName) return item;
+    const o = offers.length ? bestOffer(item.product, item.quantity, offers, todayIso(), offerBillValue.current) : null;
+    return o ? { ...item, discount: o.appliedPercent, offerName: o.name } : { ...item, discount: item.offerName ? 0 : item.discount, offerName: undefined };
+  };
+
+  // Bill value for "minimum bill" offers, and a re-check of every line when the cart changes
+  const offerBillValue = useRef(0);
+  useEffect(() => {
+    offerBillValue.current = cart.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+    if (!offers.length) return;
+    const next = cart.map(withOffer);
+    if (next.some((n, i) => n.discount !== cart[i].discount || n.offerName !== cart[i].offerName)) setCart(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, offers]);
 
   const updateCartQuantity = (productId: string, quantity: number) => {
     if (quantity <= 0) {
@@ -155,7 +450,7 @@ export function SalesManager() {
     
     setCart(cart.map(item =>
       item.product.id === productId
-        ? { ...item, quantity }
+        ? withOffer({ ...item, quantity })
         : item
     ));
   };
@@ -163,7 +458,7 @@ export function SalesManager() {
   const updateCartDiscount = (productId: string, discount: number) => {
     setCart(cart.map(item =>
       item.product.id === productId
-        ? { ...item, discount: Math.max(0, Math.min(100, discount)) }
+        ? { ...item, discount: Math.max(0, Math.min(100, discount || 0)), offerName: undefined }
         : item
     ));
   };
@@ -172,9 +467,30 @@ export function SalesManager() {
     setCart(cart.filter(item => item.product.id !== productId));
   };
 
+  // Bill before loyalty points, then the extra % off that the used points give
+  const rawTotal = cart.reduce((sum, item) => {
+    const after = item.product.price * item.quantity * (100 - item.discount) / 100;
+    return sum + after + Math.round(after * (item.product.gst_rate || 0) / 100 * 100) / 100;
+  }, 0);
+  // Discount on the whole bill: typed by the cashier, then the coupon
+  const manualBillPct = billDiscountPercent(billDiscKind, parseFloat(billDiscValue) || 0, rawTotal);
+  const couponOk = !!coupon && (!coupon.min_bill || rawTotal >= coupon.min_bill);
+  const couponPct = couponOk && coupon ? billDiscountPercent(coupon.kind, coupon.value, rawTotal) : 0;
+  const billPct = stackDiscount(manualBillPct, couponPct);
+  const afterBillTotal = rawTotal * (100 - billPct) / 100;
+  const pointsValue = loyalty && usePoints > 0 ? Math.round(usePoints * loyalty.pointValue * 100) / 100 : 0;
+  const loyaltyPct = pointsPercent(pointsValue, afterBillTotal);
+  /** Discount % sent to the database: the line's own discount, then the bill discount, then points */
+  const lineDiscount = (item: CartItem) => stackDiscount(stackDiscount(item.discount, billPct), loyaltyPct);
+  /** Biggest discount the cashier typed by hand on any line (offers and points don't count) */
+  const manualDiscountPct = cart.reduce((m, i) => Math.max(m, stackDiscount(i.offerName ? 0 : i.discount, manualBillPct)), 0);
+  const isManager = role === 'admin' || role === 'manager';
+  const needsApproval = !isManager && maxDiscountPct != null && manualDiscountPct > maxDiscountPct + 0.001
+    && !(approval && approval.pct + 0.001 >= manualDiscountPct);
+
   const calculateItemTotal = (item: CartItem) => {
     const baseTotal = item.product.price * item.quantity;
-    const discountAmount = (baseTotal * item.discount) / 100;
+    const discountAmount = (baseTotal * lineDiscount(item)) / 100;
     const subtotalAfterDiscount = baseTotal - discountAmount;
     const gstAmount = calculateGST(item);
     return subtotalAfterDiscount + gstAmount;
@@ -182,7 +498,7 @@ export function SalesManager() {
 
   const calculateGST = (item: CartItem) => {
     const basePrice = item.product.price * item.quantity;
-    const discountAmount = (basePrice * item.discount) / 100;
+    const discountAmount = (basePrice * lineDiscount(item)) / 100;
     const discountedPrice = basePrice - discountAmount;
     const gstRate = item.product.gst_rate || 0;
     return Math.round((discountedPrice * gstRate) / 100 * 100) / 100;
@@ -191,7 +507,7 @@ export function SalesManager() {
   const getCartTotals = () => {
     const subtotalBeforeGST = cart.reduce((sum, item) => {
       const baseTotal = item.product.price * item.quantity;
-      const discountAmount = (baseTotal * item.discount) / 100;
+      const discountAmount = (baseTotal * lineDiscount(item)) / 100;
       return sum + (baseTotal - discountAmount);
     }, 0);
     
@@ -205,13 +521,110 @@ export function SalesManager() {
     };
   };
 
+  const splitSum = SPLIT_KEYS.reduce((sum, k) => sum + (parseFloat(split[k]) || 0), 0);
+  const splitCredit = parseFloat(split.credit) || 0;
+  const needsCustomer = paymentMethod === 'credit' || (paymentMethod === 'split' && splitCredit > 0);
+
+  const holdBill = () => {
+    if (!cart.length) return;
+    const customerName = customers.find(c => c.id === selectedCustomer)?.name;
+    const bill: HeldBill = {
+      id: String(Date.now()),
+      at: new Date().toISOString(),
+      items: cart.map(i => ({ productId: i.product.id, quantity: i.quantity, discount: i.discount })),
+      customerId: selectedCustomer,
+      label: `${customerName || 'Walk-in'} · ${cart.length} item${cart.length > 1 ? 's' : ''} · ₹${getCartTotals().total.toLocaleString('en-IN')}`,
+    };
+    const next = [bill, ...readHeld()].slice(0, 20);
+    writeHeld(next);
+    setHeldBills(next);
+    setCart([]);
+    setSelectedCustomer("");
+    toast({ title: "Bill on hold", description: "Serve the next customer. Resume it from Held bills." });
+  };
+
+  const resumeBill = (bill: HeldBill) => {
+    if (cart.length) {
+      toast({ title: "Finish or hold the current bill first", variant: "destructive" });
+      return;
+    }
+    const items: CartItem[] = [];
+    let missing = 0;
+    for (const h of bill.items) {
+      const product = products.find(p => p.id === h.productId);
+      if (product) items.push({ product, quantity: h.quantity, discount: h.discount });
+      else missing++;
+    }
+    setCart(items);
+    setSelectedCustomer(bill.customerId || "");
+    const next = readHeld().filter(b => b.id !== bill.id);
+    writeHeld(next);
+    setHeldBills(next);
+    if (missing) toast({ title: "Some items were skipped", description: `${missing} item(s) are no longer for sale` });
+  };
+
+  const discardHeld = (bill: HeldBill) => {
+    const next = readHeld().filter(b => b.id !== bill.id);
+    writeHeld(next);
+    setHeldBills(next);
+  };
+
+  const requestApproval = async () => {
+    if (!approvalPin.trim()) return;
+    setApproving(true);
+    const { data, error } = await supabase.rpc('approve_discount' as any, {
+      p_pin: approvalPin.trim(), p_percent: manualDiscountPct, p_amount: Math.round((rawTotal - afterBillTotal) * 100) / 100, p_note: null,
+    } as any);
+    setApproving(false);
+    setApprovalPin("");
+    if (error) {
+      toast({ title: "Not approved", description: error.code === 'PGRST202' ? "Approvals need the latest database update" : error.message, variant: "destructive" });
+      return;
+    }
+    if (!data) { toast({ title: "Wrong PIN", description: "Ask the manager to type their approval PIN", variant: "destructive" }); return; }
+    setApproval({ id: data as string, pct: manualDiscountPct });
+    setApprovalOpen(false);
+    toast({ title: "Discount approved", description: `${manualDiscountPct.toFixed(2)}% off allowed on this bill` });
+  };
+
+  const applyCoupon = async () => {
+    const code = couponInput.trim();
+    if (!code) return;
+    if (isOffline()) { toast({ title: "Coupons need internet", variant: "destructive" }); return; }
+    const { data, error } = await supabase.rpc('check_coupon' as any, { p_code: code, p_bill_total: Math.round(rawTotal * 100) / 100 } as any);
+    if (error) {
+      toast({ title: "Coupon not applied", description: error.code === 'PGRST202' ? "Coupons need the latest database update" : error.message, variant: "destructive" });
+      return;
+    }
+    const c = data as any;
+    setCoupon({ id: c.id, code: c.code, kind: c.kind, value: Number(c.value), min_bill: c.min_bill == null ? null : Number(c.min_bill) });
+    setCouponInput("");
+    toast({ title: `Coupon ${c.code} applied`, description: c.kind === 'flat' ? `₹${Number(c.value)} off` : `${Number(c.value)}% off` });
+  };
+
   const handleCompleteSale = () => {
+    if (needsApproval && cart.length > 0) {
+      setApprovalOpen(true);
+      return;
+    }
     if (cart.length === 0) {
       toast({
         title: "Error",
         description: "Cart is empty",
         variant: "destructive"
       });
+      return;
+    }
+    if (paymentMethod === 'split') {
+      const { total } = getCartTotals();
+      if (Math.abs(splitSum - total) > 0.05) {
+        toast({ title: "Payments don't match the bill", description: `Entered ₹${splitSum.toFixed(2)}, bill is ₹${total.toFixed(2)}`, variant: "destructive" });
+        return;
+      }
+    }
+    if ((needsCustomer || usePoints > 0) && selectedCustomer) {
+      // Known customer (udhaar or using points): no need to ask for details again
+      processSale(selectedCustomer);
       return;
     }
     setShowCustomerDialog(true);
@@ -223,6 +636,17 @@ export function SalesManager() {
     try {
       let customerId = null;
       
+      if (customerData.name.trim() && isOffline()) {
+        // A new customer can't be added without internet
+        if (needsCustomer) {
+          throw new Error("No internet: udhaar needs a customer who is already saved. Pick them from the customer list.");
+        }
+        toast({ title: "No internet", description: "Bill saved without the new customer's details" });
+        const saved = await processSale(null);
+        if (saved) setShowCustomerDialog(false);
+        return;
+      }
+
       // Create customer if name is provided
       if (customerData.name.trim()) {
         const { data: customer, error: customerError } = await supabase
@@ -231,7 +655,8 @@ export function SalesManager() {
             name: customerData.name.trim(),
             phone: customerData.phone.trim() || null,
             email: customerData.email.trim() || null,
-            address: customerData.address.trim() || null
+            address: customerData.address.trim() || null,
+            ...newRecordFields
           })
           .select()
           .single();
@@ -240,8 +665,8 @@ export function SalesManager() {
         customerId = customer.id;
       }
 
-      await processSale(customerId);
-      setShowCustomerDialog(false);
+      const saved = await processSale(customerId);
+      if (saved) setShowCustomerDialog(false);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -253,88 +678,270 @@ export function SalesManager() {
     }
   };
 
-  const processSale = async (customerId?: string | null) => {
-    if (!user) return;
+  // Old way of saving (separate steps from the browser). Only used if the
+  // database does not have the create_sale function yet.
+  const legacySaveSale = async (customerId: string | null) => {
+    const { subtotal, totalGST, total } = getCartTotals();
+    const invoiceNumber = `INV-${Date.now()}`;
 
+    const { data: sale, error: saleError } = await supabase
+      .from('sales')
+      .insert({
+        customer_id: customerId,
+        cashier_id: user!.id,
+        total_amount: total,
+        tax_amount: totalGST,
+        invoice_number: invoiceNumber,
+        payment_method: paymentMethod
+      })
+      .select()
+      .single();
+
+    if (saleError) throw saleError;
+
+    const saleItems = cart.map(item => ({
+      sale_id: sale.id,
+      product_id: item.product.id,
+      quantity: item.quantity,
+      unit_price: item.product.price,
+      total_price: calculateItemTotal(item),
+      gst_amount: calculateGST(item)
+    }));
+
+    const { error: itemsError } = await supabase
+      .from('sale_items')
+      .insert(saleItems);
+
+    if (itemsError) throw itemsError;
+
+    for (const item of cart) {
+      const newStock = (item.product.stock_quantity || 0) - item.quantity;
+      await supabase
+        .from('products')
+        .update({ stock_quantity: Math.max(0, newStock) })
+        .eq('id', item.product.id);
+    }
+
+    return sale;
+  };
+
+  // After a bill is saved (or kept offline): show it for printing and clear the till
+  const finishSale = (sale: any, soldItems: CartItem[], refresh: boolean) => {
+    setLastSale(sale);
+    setLastSaleItems(soldItems);
+    setLastInvoice(null);
+    buildLastInvoice(sale, soldItems).then(setLastInvoice);
+
+    setCart([]);
+    setSelectedCustomer("");
+    setPaymentMethod("cash");
+    setSplit({ cash: "", upi: "", card: "", credit: "" });
+    setUsePoints(0);
+    setPointsInput("");
+    setBillDiscValue("");
+    setCoupon(null);
+    setApproval(null);
+    if (refresh) {
+      fetchData(); // Refresh product data
+      fetchPaymentSettings(); // Refresh payment settings
+    }
+  };
+
+  // No internet: keep the bill on this device; it is sent when back online
+  const saveOffline = (saleArgs: Record<string, any>, payments: Record<string, number> | null, customer: string | null, uncertain: boolean): boolean => {
+    if (!user) return false;
+    if (usePoints > 0) {
+      toast({ title: "Points can't be used without internet", description: "Remove the points and try again", variant: "destructive" });
+      return false;
+    }
+    if (coupon) {
+      toast({ title: "Coupons can't be used without internet", description: "Remove the coupon and try again", variant: "destructive" });
+      return false;
+    }
+    const ref = newClientRef();
+    const { total } = getCartTotals();
+    const soldAt = new Date().toISOString();
+    const queued: QueuedSale = {
+      client_ref: ref,
+      sold_at: soldAt,
+      cashier_id: user.id,
+      items: saleArgs.p_items,
+      lines: cart.map(i => ({ name: i.product.name, quantity: i.quantity })),
+      customer_id: customer,
+      payment_method: payments ? 'split' : paymentMethod,
+      payments: payments,
+      location_id: saleArgs.p_location_id || null,
+      expected_total: total,
+      uncertain,
+      attempts: 0,
+    };
+    if (!addToQueue(queued)) {
+      toast({ title: "Sale not saved", description: "No internet, and this device could not store the bill. Note it on paper.", variant: "destructive" });
+      return false;
+    }
+    const sale = {
+      id: ref,
+      invoice_number: offlineBillNumber(ref),
+      created_at: soldAt,
+      total_amount: total,
+      payment_method: payments ? 'split' : paymentMethod,
+      payment_split: payments,
+      customer_id: customer,
+      location_id: saleArgs.p_location_id || null,
+      is_interstate: false,
+      offline: true,
+    };
+    // Take the sold items off the stock shown on this device
+    const sold = new Map<string, number>();
+    for (const i of cart) sold.set(i.product.id, (sold.get(i.product.id) || 0) + i.quantity);
+    setProducts(ps => {
+      const next = ps.map(p => sold.has(p.id) ? { ...p, stock_quantity: (p.stock_quantity || 0) - (sold.get(p.id) || 0) } : p);
+      cacheSet('products', user.id, next);
+      return next;
+    });
+    toast({
+      title: uncertain ? "Connection lost: bill kept on this device" : "Saved offline",
+      description: `${sale.invoice_number}. It gets its real bill number when the internet is back.`,
+    });
+    finishSale(sale, cart, false);
+    return true;
+  };
+
+  // One save at a time: a double click or Enter can't make the same bill twice
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const processSale = async (customerId?: string | null): Promise<boolean> => {
+    if (!user || savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
     try {
-      const { subtotal, totalGST, total } = getCartTotals();
-      const invoiceNumber = `INV-${Date.now()}`;
+      return await processSaleOnce(customerId);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
 
-      const { data: sale, error: saleError } = await supabase
-        .from('sales')
-        .insert({
-          customer_id: customerId || selectedCustomer || null,
-          cashier_id: user.id,
-          total_amount: total,
-          tax_amount: totalGST,
-          invoice_number: invoiceNumber,
-          payment_method: paymentMethod
-        })
-        .select()
-        .single();
+  const processSaleOnce = async (customerId?: string | null): Promise<boolean> => {
+    if (!user) return false;
 
-      if (saleError) throw saleError;
+    const customer = customerId || selectedCustomer || null;
 
-      // Create sale items
-      const saleItems = cart.map(item => ({
-        sale_id: sale.id,
+    // Save bill + items + stock in one database step
+    const saleArgs: Record<string, any> = {
+      p_items: cart.map(item => ({
         product_id: item.product.id,
         quantity: item.quantity,
-        unit_price: item.product.price,
-        total_price: calculateItemTotal(item),
-        gst_amount: calculateGST(item)
-      }));
+        discount: lineDiscount(item) || 0
+      })),
+      p_customer_id: customer,
+      p_payment_method: paymentMethod
+    };
+    if (billingStoreFilter) saleArgs.p_location_id = billingStoreFilter;
 
-      const { error: itemsError } = await supabase
-        .from('sale_items')
-        .insert(saleItems);
+    let payments: Record<string, number> | null = null;
+    if (paymentMethod === 'split') {
+      payments = {};
+      for (const k of SPLIT_KEYS) { const v = parseFloat(split[k]) || 0; if (v > 0) payments[k] = v; }
+    } else if (paymentMethod === 'bank') {
+      // Bank transfer is saved as a one-part split
+      payments = { bank: getCartTotals().total };
+    }
 
-      if (itemsError) throw itemsError;
+    if (isOffline()) return saveOffline(saleArgs, payments, customer, false);
 
-      // Update product stock
-      for (const item of cart) {
-        const newStock = (item.product.stock_quantity || 0) - item.quantity;
-        await supabase
-          .from('products')
-          .update({ stock_quantity: Math.max(0, newStock) })
-          .eq('id', item.product.id);
+    let usedOldWay = false;
+    try {
+      let splitSale: any = null;
+      if (payments) {
+        const { p_payment_method, ...rest } = saleArgs;
+        const { data, error } = await supabase.rpc('create_sale_split' as any, { ...rest, p_payments: payments } as any);
+        if (error) {
+          if (error.code === 'PGRST202') throw new Error('Split payment needs the latest database update. Use one payment method for now.');
+          if (/Unknown payment method: bank/.test(error.message || '')) throw new Error('Bank transfer needs the latest database update. Choose another payment method for now.');
+          throw error;
+        }
+        splitSale = data;
       }
 
-      // Note: Loyalty points feature removed as per business requirements
+      let { data: savedSale, error: rpcError } = splitSale
+        ? { data: splitSale, error: null as any }
+        : await supabase.rpc('create_sale', saleArgs as any);
+      if (rpcError && rpcError.code === 'PGRST202' && saleArgs.p_location_id) {
+        // Database has the older create_sale without the store option
+        const { p_location_id, ...older } = saleArgs;
+        ({ data: savedSale, error: rpcError } = await supabase.rpc('create_sale', older as any));
+      }
+
+      let sale = savedSale;
+      if (rpcError) {
+        // Function not installed yet: keep the shop running the old way
+        const missing = rpcError.code === 'PGRST202' || rpcError.code === '42883';
+        if (!missing) throw rpcError;
+        console.warn('create_sale not found in database, using old save method');
+        usedOldWay = true;
+        sale = await legacySaveSale(customer);
+      }
+      const invoiceNumber = sale.invoice_number;
 
       toast({
         title: "Sale Completed",
         description: `Invoice ${invoiceNumber} generated successfully`
       });
 
-      // Store last sale for printing/sharing
-      setLastSale(sale);
-      setLastSaleItems(cart);
+      if (usePoints > 0 && sale?.id && sale.customer_id) {
+        const { error: pErr } = await supabase.rpc('redeem_loyalty_points' as any, { p_sale_id: sale.id, p_points: usePoints, p_value: pointsValue } as any);
+        if (pErr) toast({ title: "Points not deducted", description: `${pErr.message}. The bill is saved with the discount.`, variant: "destructive" });
+        else toast({ title: `${usePoints} points used`, description: `₹${pointsValue.toFixed(2)} off` });
+      }
 
-      // Reset cart and form
-      setCart([]);
-      setSelectedCustomer("");
-      setPaymentMethod("cash");
-      fetchData(); // Refresh product data
-      fetchPaymentSettings(); // Refresh payment settings
+      if (sale?.id && !usedOldWay) {
+        if (coupon && couponOk) {
+          const { error: cErr } = await supabase.rpc('redeem_coupon' as any, { p_coupon_id: coupon.id, p_sale_id: sale.id, p_discount: Math.round((rawTotal - afterBillTotal) * 100) / 100 } as any);
+          if (cErr) toast({ title: "Coupon use not recorded", description: `${cErr.message}. The bill is saved with the discount.`, variant: "destructive" });
+        }
+        if (approval) supabase.rpc('attach_discount_approval' as any, { p_approval_id: approval.id, p_sale_id: sale.id } as any).then(() => undefined, () => undefined);
+      }
 
-    } catch (error) {
+      finishSale(sale, cart, true);
+      return true;
+    } catch (error: any) {
+      // The internet dropped while saving: keep the bill on this device.
+      // (Not for the old way of saving, which may have saved part of it.)
+      if (!usedOldWay && isNetworkError(error)) return saveOffline(saleArgs, payments, customer, true);
       toast({
-        title: "Error",
-        description: "Failed to process sale",
+        title: "Sale not saved",
+        description: error?.message || "Failed to process sale",
         variant: "destructive"
       });
+      fetchData(); // Refresh stock so the cashier sees what is left
+      return false;
     }
   };
 
   const filteredProducts = products.filter((product) => {
     const matchesSearch =
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+      product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (product.barcode || '').toLowerCase().includes(searchTerm.toLowerCase());
     const productCategory = (product.category?.trim() || "Uncategorized");
     const matchesCategory = categoryFilter === "all" || productCategory === categoryFilter;
     return matchesSearch && matchesCategory;
   });
+
+  // Keyboard shortcuts for a fast till
+  const keyActions = useRef({ complete: () => {}, hold: () => {} });
+  keyActions.current = { complete: handleCompleteSale, hold: holdBill };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F2') { e.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); }
+      else if (e.key === 'F4') { e.preventDefault(); keyActions.current.hold(); }
+      else if (e.key === 'F7') { e.preventDefault(); const el = document.getElementById('bill-disc') as HTMLInputElement | null; el?.focus(); el?.select(); }
+      else if (e.key === 'F9') { e.preventDefault(); if (!savingRef.current) keyActions.current.complete(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const { subtotal, totalGST, total } = getCartTotals();
   const categories = Array.from(new Set(products.map(p => (p.category?.trim() || "Uncategorized"))));
@@ -342,25 +949,57 @@ export function SalesManager() {
   // UPI payment link - use settings from database or fallback
   const vpa = paymentSettings?.upi_vpa || "6302242108@kotak811";
   const payeeName = paymentSettings?.payee_name || "DailyKart";
-  const upiAmount = total.toFixed(2);
+  const upiAmount = (paymentMethod === 'split' ? (parseFloat(split.upi) || 0) : total).toFixed(2);
   const upiNote = lastSale?.invoice_number ? `Invoice ${lastSale.invoice_number}` : "POS Payment";
   const upiUrl = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(upiAmount)}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-24 md:pb-0">
       {/* Product Selection */}
       <div className="space-y-6">
         <div>
           <h2 className="text-2xl font-bold mb-4">Product Selection</h2>
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search products by name or SKU..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+            <div className="flex gap-2">
+              <Input
+                ref={searchRef}
+                autoFocus={!touchDevice}
+                placeholder="Scan barcode or search by name / SKU"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  // USB scanners type the code and press Enter
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const term = searchTerm.trim();
+                    if (!term) return;
+                    if (findByCode(term)) {
+                      addByCode(term);
+                      setSearchTerm("");
+                    } else if (parseScaleBarcode(term, scale)) {
+                      // weighing-scale sticker
+                      if (addByCode(term)) setSearchTerm("");
+                    } else if (filteredProducts.length === 1) {
+                      addToCart(filteredProducts[0]);
+                      setSearchTerm("");
+                    }
+                  }
+                }}
+                className="pl-10"
+              />
+              <Button type="button" variant="outline" onClick={() => setScannerOpen(true)} className="gap-2 shrink-0" aria-label="Scan with camera">
+                <ScanLine className="h-4 w-4" />
+                <span className="hidden sm:inline">Camera</span>
+              </Button>
+            </div>
           </div>
+          <BarcodeScannerDialog
+            open={scannerOpen}
+            onOpenChange={(o) => { setScannerOpen(o); if (!o && !touchDevice) setTimeout(() => searchRef.current?.focus(), 50); }}
+            onDetected={addByCode}
+            summary={cart.length ? `${cart.length} item${cart.length === 1 ? '' : 's'} · ₹${getCartTotals().total.toLocaleString('en-IN')}` : undefined}
+          />
           <div className="mt-3">
             <Label>Category</Label>
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
@@ -378,6 +1017,23 @@ export function SalesManager() {
             </Select>
           </div>
         </div>
+
+        {(() => {
+          const quick = topSellerIds.map(id => products.find(p => p.id === id)).filter((p): p is Product => !!p && (p.stock_quantity ?? 0) > 0);
+          if (!quick.length) return null;
+          return (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Best sellers (tap to add)</Label>
+              <div className="flex flex-wrap gap-2">
+                {quick.map(p => (
+                  <Button key={p.id} type="button" size="sm" variant="secondary" className="h-8" onClick={() => addToCart(p)}>
+                    {p.name} · ₹{p.price.toLocaleString('en-IN')}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         <Card>
           <CardContent className="p-4">
@@ -428,7 +1084,7 @@ export function SalesManager() {
       </div>
 
       {/* Cart & Checkout */}
-      <div className="space-y-6">
+      <div className="space-y-6 scroll-mt-4" id="bill">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold">Shopping Cart</h2>
           <Badge variant="secondary">{cart.length} items</Badge>
@@ -452,13 +1108,44 @@ export function SalesManager() {
                     ))}
                   </SelectContent>
                 </Select>
-                <AddCustomerDialog 
+                <AddCustomerDialog
+                  extraFields={newRecordFields}
                   onCustomerAdded={(newCustomer) => {
                     setCustomers(prev => [...prev, { ...newCustomer, loyalty_points: 0 }]);
                     setSelectedCustomer(newCustomer.id);
                   }} 
                 />
               </div>
+              {loyalty && (() => {
+                const maxPts = maxPointsForBill(loyalty.balance, loyalty.pointValue, afterBillTotal);
+                return (
+                  <div className="rounded-md border p-2 text-sm space-y-2">
+                    <div>
+                      ⭐ <span className="font-medium">{loyalty.balance} points</span>{" "}
+                      <span className="text-muted-foreground">(worth ₹{(loyalty.balance * loyalty.pointValue).toFixed(2)})</span>
+                    </div>
+                    {usePoints > 0 ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Using {usePoints} points: −₹{pointsValue.toFixed(2)}</span>
+                        <Button size="sm" variant="ghost" className="h-7" onClick={() => { setUsePoints(0); setPointsInput(""); }}>Remove</Button>
+                      </div>
+                    ) : loyalty.balance < loyalty.minRedeem ? (
+                      <div className="text-xs text-muted-foreground">Points can be used from {loyalty.minRedeem} points</div>
+                    ) : cart.length > 0 && maxPts > 0 ? (
+                      <div className="flex gap-2">
+                        <Input className="h-8" inputMode="numeric" aria-label="Points to use" placeholder={`Up to ${maxPts}`} value={pointsInput} onChange={(e) => setPointsInput(e.target.value)} />
+                        <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => {
+                          const n = pointsInput.trim() ? parseInt(pointsInput, 10) : maxPts;
+                          if (!(n > 0)) return;
+                          if (n > maxPts) { toast({ title: `Up to ${maxPts} points on this bill`, description: "Points can pay up to half the bill", variant: "destructive" }); return; }
+                          if (n < loyalty.minRedeem && n < loyalty.balance) { toast({ title: `Use at least ${loyalty.minRedeem} points`, variant: "destructive" }); return; }
+                          setUsePoints(n);
+                        }}>Use points</Button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -466,10 +1153,43 @@ export function SalesManager() {
         {/* Cart Items */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />
-              Cart Items
-            </CardTitle>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                Cart Items
+              </CardTitle>
+              <div className="flex gap-2">
+                {cart.length > 0 && (
+                  <Button type="button" size="sm" variant="outline" className="gap-1" onClick={holdBill}>
+                    <PauseCircle className="h-4 w-4" /> Hold
+                  </Button>
+                )}
+                {heldBills.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" size="sm" variant="secondary" className="gap-1">
+                        <PlayCircle className="h-4 w-4" /> Held ({heldBills.length})
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-72">
+                      <DropdownMenuLabel>Bills on hold (this device)</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {heldBills.map(b => (
+                        <div key={b.id} className="flex items-center gap-1 px-1">
+                          <DropdownMenuItem className="flex-1 flex-col items-start" onSelect={() => resumeBill(b)}>
+                            <span className="text-sm">{b.label}</span>
+                            <span className="text-xs text-muted-foreground">{new Date(b.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </DropdownMenuItem>
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label="Discard held bill" onClick={() => discardHeld(b)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {cart.length === 0 ? (
@@ -483,17 +1203,41 @@ export function SalesManager() {
                     <div className="flex-1">
                       <p className="font-medium">{item.product.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        ₹{item.product.price.toLocaleString('en-IN')} each
+                        ₹{item.product.price.toLocaleString('en-IN')} {isLoose(item.product.sold_by) ? `per ${looseUnit(item.product.sold_by)}` : 'each'}
+                        {item.offerName && <Badge variant="secondary" className="ml-2">Offer: {item.offerName}</Badge>}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min="1"
-                        value={item.quantity}
-                        onChange={(e) => updateCartQuantity(item.product.id, parseInt(e.target.value))}
-                        className="w-16 text-center"
-                      />
+                      {isLoose(item.product.sold_by) ? (
+                        <>
+                          {/* weight is typed freely (0.750) and taken when the box is left or Enter is pressed */}
+                          <Input
+                            key={`${item.product.id}:${item.quantity}`}
+                            type="number"
+                            min="0.005"
+                            step="0.005"
+                            aria-label={`Quantity of ${item.product.name}`}
+                            defaultValue={item.quantity}
+                            onBlur={(e) => {
+                              const q = Math.round((parseFloat(e.target.value) || 0) * 1000) / 1000;
+                              if (q > 0 && q !== item.quantity) updateCartQuantity(item.product.id, q);
+                              else e.target.value = String(item.quantity);
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                            className="w-20 text-center"
+                          />
+                          <span className="text-xs text-muted-foreground">{looseUnit(item.product.sold_by)}</span>
+                        </>
+                      ) : (
+                        <Input
+                          type="number"
+                          min="1"
+                          aria-label={`Quantity of ${item.product.name}`}
+                          value={item.quantity}
+                          onChange={(e) => updateCartQuantity(item.product.id, parseInt(e.target.value))}
+                          className="w-16 text-center"
+                        />
+                      )}
                       <span className="text-sm text-muted-foreground">×</span>
                       <Input
                         type="number"
@@ -543,10 +1287,62 @@ export function SalesManager() {
                   <span>GST:</span>
                   <span>₹{totalGST.toLocaleString('en-IN')}</span>
                 </div>
+                {billPct > 0 && (
+                  <div className="flex justify-between text-green-700">
+                    <span>Bill discount{coupon && couponOk ? ` (coupon ${coupon.code})` : ""}:</span>
+                    <span>−₹{(Math.round((rawTotal - afterBillTotal) * 100) / 100).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+                {pointsValue > 0 && (
+                  <div className="flex justify-between text-green-700">
+                    <span>Points used ({usePoints}):</span>
+                    <span>−₹{(Math.round((afterBillTotal - total) * 100) / 100).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total:</span>
                   <span>₹{total.toLocaleString('en-IN')}</span>
                 </div>
+              </div>
+
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex gap-2 items-end">
+                  <div className="space-y-1 flex-1">
+                    <Label htmlFor="bill-disc" className="text-xs">Discount on bill</Label>
+                    <Input id="bill-disc" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0"
+                      value={billDiscValue} onChange={(e) => { setBillDiscValue(e.target.value); }} />
+                  </div>
+                  <Select value={billDiscKind} onValueChange={(v) => setBillDiscKind(v as "percent" | "flat")}>
+                    <SelectTrigger className="w-20" aria-label="Discount type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">%</SelectItem>
+                      <SelectItem value="flat">₹</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {coupon ? (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className={couponOk ? "text-green-700" : "text-destructive"}>
+                      Coupon {coupon.code}: {coupon.kind === 'flat' ? `₹${coupon.value}` : `${coupon.value}%`} off
+                      {!couponOk && coupon.min_bill ? ` (needs a bill of ₹${coupon.min_bill})` : ""}
+                    </span>
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => setCoupon(null)}>Remove</Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input className="h-9" aria-label="Coupon code" placeholder="Coupon code" value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyCoupon(); } }} />
+                    <Button size="sm" variant="outline" className="h-9 shrink-0" disabled={!couponInput.trim()} onClick={applyCoupon}>Apply</Button>
+                  </div>
+                )}
+                {maxDiscountPct != null && !isManager && (
+                  <p className={`text-xs ${needsApproval ? "text-destructive" : "text-muted-foreground"}`}>
+                    {needsApproval
+                      ? `Discount ${manualDiscountPct.toFixed(2)}% is above ${maxDiscountPct}%: a manager's PIN is needed`
+                      : approval ? `Manager approved up to ${approval.pct.toFixed(2)}%` : `You can give up to ${maxDiscountPct}% off`}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -559,29 +1355,63 @@ export function SalesManager() {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="card">Card</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
-                    <SelectItem value="credit">Credit</SelectItem>
+                    <SelectItem value="bank">Bank transfer</SelectItem>
+                    <SelectItem value="credit">Credit (Udhaar)</SelectItem>
+                    <SelectItem value="split">Split (part cash, part UPI...)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
+              {paymentMethod === 'split' && (
+                <div className="space-y-2 rounded-md border p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {SPLIT_KEYS.map(k => (
+                      <div key={k} className="space-y-1">
+                        <Label htmlFor={`split-${k}`} className="text-xs">{k === 'credit' ? 'Udhaar' : k.toUpperCase()}</Label>
+                        <Input id={`split-${k}`} type="number" inputMode="decimal" min="0" step="0.01" placeholder="0"
+                          value={split[k]} onChange={(e) => setSplit(sp => ({ ...sp, [k]: e.target.value }))} />
+                      </div>
+                    ))}
+                  </div>
+                  {(() => {
+                    const left = Math.round((total - splitSum) * 100) / 100;
+                    return (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className={Math.abs(left) <= 0.05 ? "text-green-600" : "text-destructive"}>
+                          {Math.abs(left) <= 0.05 ? "Matches the bill" : left > 0 ? `₹${left.toFixed(2)} still to enter` : `₹${(-left).toFixed(2)} too much`}
+                        </span>
+                        {left > 0.05 && (
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setSplit(sp => ({ ...sp, cash: String(Math.round(((parseFloat(sp.cash) || 0) + left) * 100) / 100) }))}>
+                            Rest in cash
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               <div className="space-y-2">
-                {paymentMethod === 'upi' && (
+                {(paymentMethod === 'upi' || (paymentMethod === 'split' && (parseFloat(split.upi) || 0) > 0)) && (
                   <Button
                     variant="outline"
                     className="w-full"
                     onClick={() => setUpiDialogOpen(true)}
                   >
-                    Show UPI QR to Pay (₹{total.toLocaleString('en-IN')})
+                    Show UPI QR to Pay (₹{(paymentMethod === 'split' ? parseFloat(split.upi) || 0 : total).toLocaleString('en-IN')})
                   </Button>
                 )}
                 <Button 
                   onClick={handleCompleteSale} 
                   className="w-full" 
                   size="lg"
-                  disabled={cart.length === 0}
+                  disabled={cart.length === 0 || saving}
                 >
                   Complete Sale - ₹{total.toLocaleString('en-IN')}
                 </Button>
+                <p className="hidden md:block text-xs text-muted-foreground text-center">
+                  Keys: F2 search · F4 hold bill · F7 bill discount · F9 complete sale
+                </p>
                 
                 {cart.length > 0 && (
                   <WhatsAppIntegration
@@ -596,7 +1426,7 @@ export function SalesManager() {
                       tax_amount: totalGST.toLocaleString('en-IN'),
                       total_amount: total.toLocaleString('en-IN'),
                       payment_method: paymentMethod,
-                      invoice_number: `INV-${Date.now()}`,
+                      invoice_number: 'Draft',
                       created_at: new Date().toISOString()
                     }}
                     recipientPhone=""
@@ -619,43 +1449,20 @@ export function SalesManager() {
                 <span>₹{Number(lastSale.total_amount).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex gap-2">
-                <Button className="flex-1" onClick={() => {
-                  const printArea = document.getElementById('print-area');
-                  if (printArea) {
-                    const printWindow = window.open('', '_blank');
-                    if (printWindow) {
-                      printWindow.document.write(`
-                        <html>
-                          <head>
-                            <title>Invoice - ${lastSale.invoice_number}</title>
-                            <style>
-                              @media print {
-                                body { margin: 0; padding: 0; font-family: monospace; }
-                                .print-content { width: 80mm; font-size: 12px; }
-                                .center { text-align: center; }
-                                .bold { font-weight: bold; }
-                                .dashed { border-top: 1px dashed #000; margin: 8px 0; }
-                                .flex { display: flex; justify-content: space-between; }
-                                .mb-1 { margin-bottom: 4px; }
-                                .mb-2 { margin-bottom: 8px; }
-                                .small { font-size: 10px; }
-                              }
-                            </style>
-                          </head>
-                          <body>
-                            ${printArea.innerHTML}
-                          </body>
-                        </html>
-                      `);
-                      printWindow.document.close();
-                      printWindow.focus();
-                      printWindow.print();
-                      printWindow.close();
-                    }
+                <Button className="flex-1" disabled={!lastInvoice} onClick={() => {
+                  if (lastInvoice && !printReceipt(lastInvoice)) {
+                    toast({ title: "Pop-up blocked", description: "Allow pop-ups for this site to print bills", variant: "destructive" });
                   }
                 }}>
-                  Print 80mm Invoice
+                  Print {receiptWidth}mm bill
                 </Button>
+                <Select value={receiptWidth} onValueChange={(v) => { setReceiptWidth(v as ReceiptWidth); setReceiptWidthState(v as ReceiptWidth); }}>
+                  <SelectTrigger className="w-24" aria-label="Paper width"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="80">80mm</SelectItem>
+                    <SelectItem value="58">58mm</SelectItem>
+                  </SelectContent>
+                </Select>
                 <WhatsAppIntegration
                   type="invoice"
                   data={{
@@ -665,15 +1472,16 @@ export function SalesManager() {
                       unit_price: calculateItemTotal(item) / item.quantity,
                       total_price: calculateItemTotal(item)
                     })),
-                    subtotal: subtotal,
-                    tax_amount: totalGST,
+                    subtotal: lastInvoice?.taxable ?? 0,
+                    tax_amount: lastInvoice?.totalTax ?? Number(lastSale.tax_amount || 0),
                     total_amount: Number(lastSale.total_amount),
                     payment_method: lastSale.payment_method,
                     invoice_number: lastSale.invoice_number,
-                    created_at: lastSale.created_at
+                    created_at: lastSale.created_at,
+                    invoice: lastInvoice
                   }}
                   recipientPhone=""
-                  recipientName={customers.find(c => c.id === selectedCustomer)?.name || ""}
+                  recipientName={lastInvoice?.customerName || ""}
                 />
               </div>
             </CardContent>
@@ -685,8 +1493,38 @@ export function SalesManager() {
           open={showCustomerDialog}
           onOpenChange={setShowCustomerDialog}
           onSubmit={handleCustomerSubmit}
+          onSkip={async () => {
+            if (needsCustomer) {
+              toast({ title: "Customer needed", description: "Udhaar (credit) needs the customer's name so it shows in Khata", variant: "destructive" });
+              return;
+            }
+            setCustomerEntryLoading(true);
+            const saved = await processSale(null);
+            setCustomerEntryLoading(false);
+            if (saved) setShowCustomerDialog(false);
+          }}
           isLoading={customerEntryLoading}
         />
+
+        {/* Manager approval for a bigger discount */}
+        <Dialog open={approvalOpen} onOpenChange={(o) => { setApprovalOpen(o); setApprovalPin(""); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Manager approval</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This bill has {manualDiscountPct.toFixed(2)}% off. Cashiers can give up to {maxDiscountPct}%. A manager types their PIN to allow it.
+              </p>
+              <Input type="password" inputMode="numeric" autoComplete="off" aria-label="Manager PIN" placeholder="Manager PIN" maxLength={6}
+                value={approvalPin} onChange={(e) => setApprovalPin(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); requestApproval(); } }} />
+              <Button className="w-full" disabled={approving || approvalPin.length < 4} onClick={requestApproval}>
+                {approving ? "Checking..." : "Approve discount"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* UPI QR Dialog */}
         <Dialog open={upiDialogOpen} onOpenChange={setUpiDialogOpen}>
@@ -699,102 +1537,30 @@ export function SalesManager() {
               <div className="text-center">
                 <div className="text-sm text-muted-foreground">Pay to: {payeeName}</div>
                 <div className="text-sm text-muted-foreground">VPA: {vpa}</div>
-                <div className="font-medium">Amount: ₹{total.toLocaleString('en-IN')}</div>
+                <div className="font-medium">Amount: ₹{Number(upiAmount).toLocaleString('en-IN')}</div>
               </div>
             </div>
           </DialogContent>
         </Dialog>
 
-        {/* Hidden print area for 80mm thermal receipt */}
-        <div id="print-area" className="print-content" style={{display: 'none'}}>
-          {lastSale && (
-            <div>
-              {/* Header */}
-              <div className="center">
-                <div className="bold">DAILYKART POS</div>
-                <div className="small">Your Daily Shopping Partner</div>
-                <div className="small">Phone: +91-9966160298, +91-9381309140</div>
-                <div className="small">Email: dailykart786@gmail.com</div>
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Invoice Details */}
-              <div className="center">
-                <div className="bold">TAX INVOICE</div>
-                <div className="small">Invoice: {lastSale.invoice_number}</div>
-                <div className="small">
-                  Date: {new Date(lastSale.created_at || Date.now()).toLocaleDateString('en-IN')}
-                </div>
-                <div className="small">
-                  Time: {new Date(lastSale.created_at || Date.now()).toLocaleTimeString('en-IN')}
-                </div>
-                {customers.find(c => c.id === selectedCustomer) && (
-                  <div className="small">Customer: {customers.find(c => c.id === selectedCustomer)?.name}</div>
-                )}
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Items Header */}
-              <div className="item-row bold">
-                <div className="item-name">ITEM</div>
-                <div className="item-price">QTY x RATE = AMT</div>
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Items List */}
-              {lastSaleItems.map(item => (
-                <div key={item.product.id}>
-                  <div className="item-row">
-                    <div className="item-name">{item.product.name}</div>
-                    <div className="item-price">Rs{calculateItemTotal(item).toFixed(2)}</div>
-                  </div>
-                  <div className="item-row">
-                    <div className="item-details">
-                      {item.quantity} x Rs{item.product.price.toFixed(2)}
-                    </div>
-                    <div></div>
-                  </div>
-                </div>
-              ))}
-              
-              <div className="dashed"></div>
-              
-              {/* Totals */}
-              <div className="total-section">
-                <div className="total-row">
-                  <div>Subtotal:</div>
-                  <div>Rs{subtotal.toFixed(2)}</div>
-                </div>
-                <div className="total-row">
-                  <div>GST:</div>
-                  <div>Rs{totalGST.toFixed(2)}</div>
-                </div>
-                <div className="total-row grand-total">
-                  <div>TOTAL:</div>
-                  <div>Rs{Number(lastSale.total_amount).toFixed(2)}</div>
-                </div>
-                <div className="center">
-                  <div className="bold">Payment: {lastSale.payment_method?.toUpperCase()}</div>
-                </div>
-              </div>
-              
-              <div className="dashed"></div>
-              
-              {/* Footer */}
-              <div className="footer">
-                <div className="bold">THANK YOU FOR SHOPPING!</div>
-                <div>Visit us again for more great deals</div>
-                <div>We accept Cash, Card, UPI payments</div>
-                <div>Customer Care: +91-9966160298</div>
-                <div>Rate us on Google for better service</div>
-              </div>
-            </div>
-          )}
-        </div>
+      </div>
 
+      {/* Phones: bill total always visible, with big Scan and Bill buttons */}
+      <div className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <div className="flex items-center gap-2">
+          <Button type="button" size="lg" variant="outline" className="h-12 gap-2 shrink-0" onClick={() => setScannerOpen(true)} aria-label="Scan with camera">
+            <ScanLine className="h-5 w-5" /> Scan
+          </Button>
+          <Button
+            type="button"
+            size="lg"
+            className="h-12 flex-1 justify-between gap-2"
+            onClick={() => document.getElementById('bill')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            <span className="flex items-center gap-2"><ShoppingCart className="h-5 w-5" /> {cart.length} item{cart.length === 1 ? '' : 's'}</span>
+            <span className="font-bold">₹{getCartTotals().total.toLocaleString('en-IN')}</span>
+          </Button>
+        </div>
       </div>
     </div>
   );

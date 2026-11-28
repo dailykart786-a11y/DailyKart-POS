@@ -6,7 +6,6 @@ import { localDatabaseClient } from '@/integrations/local/client';
 const provider = import.meta.env.VITE_DATA_PROVIDER?.toLowerCase() ?? 'local';
 export const isLocalMode = provider !== 'supabase';
 
-
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 

@@ -1,4 +1,25 @@
-# Welcome to your Lovable project
+# DailyKart POS
+
+## Database (Supabase)
+
+| File | When to use it |
+|---|---|
+| `supabase/schema.sql` | Build the whole database on a **new, empty** Supabase project. One file, run once in SQL Editor. |
+| `supabase/migrations/2026*.sql` | Updates for an **existing** database, in date order. Each is safe to run more than once and only adds things. |
+| `supabase/legacy-migrations/` | Old Lovable migrations, kept for history only. They cannot rebuild the database; don't run them. |
+| `supabase/functions/admin-users` | Edge Function that lets admins create, edit and remove staff logins. |
+
+When a change needs the database, add a new dated file in `supabase/migrations/` **and** the same change to `supabase/schema.sql`, so a fresh setup always matches the live one. App code should keep working if the new SQL has not been run yet.
+
+### Backups
+
+`.github/workflows/db-backup.yml` makes an encrypted backup every night at 03:00 IST and keeps it for 30 days under the repository's Actions tab. It stays off until two repository secrets are added: `SUPABASE_DB_URL` (Supabase > Connect > Session pooler string, with the database password) and `BACKUP_PASSPHRASE` (keep it safe; you need it to open a backup). You can also run it any time from Actions > Database backup > Run workflow.
+
+To open a backup: `gpg --decrypt dailykart-YYYY-MM-DD.sql.gz.gpg | gunzip > backup.sql`. It holds the tables and data of the `public` schema (logins live in Supabase Auth and are not included). Restoring overwrites data, so test it on a spare Supabase project first.
+
+---
+
+## Lovable project
 
 ## Project info
 

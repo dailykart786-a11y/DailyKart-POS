@@ -1,0 +1,47 @@
+// How each report figure is worked out, in plain words. Shown in the (i)
+// tooltips on the Reports page. Keep in step with report_period() in
+// supabase/migrations/20261127420000_reports_core.sql.
+
+export interface KpiDefinition { label: string; how: string; source: string }
+
+export const KPI: Record<string, KpiDefinition> = {
+  gross_sales: { label: "Gross sales", how: "Value of everything billed before discounts, without GST.", source: "Bills" },
+  discounts: { label: "Discounts", how: "Discounts given on bills, without GST.", source: "Bills" },
+  net_sales: { label: "Net sales", how: "Gross sales minus discounts minus returns. GST is not included.", source: "Bills, returns" },
+  returns: { label: "Sales returns", how: "Value of goods customers brought back, without GST. Counted on the day of the return.", source: "Returns" },
+  gst_collected: { label: "GST collected", how: "GST on bills minus GST given back on returns.", source: "Bills, returns" },
+  bills: { label: "Bills", how: "Number of bills made.", source: "Bills" },
+  avg_bill: { label: "Average bill", how: "Total billed (with GST) divided by the number of bills.", source: "Bills" },
+  billed_total: { label: "Total billed", how: "What customers were charged, with GST, after discounts.", source: "Bills" },
+  cogs: { label: "Cost of goods sold", how: "Quantity sold times the purchase cost saved at the moment of each sale, minus the same cost for returned goods.", source: "Stock movements" },
+  gross_profit: { label: "Gross profit", how: "Net sales minus cost of goods sold. Purchases are not subtracted here; only the cost of what was sold.", source: "Bills, returns, stock movements" },
+  gross_margin: { label: "Gross margin", how: "Gross profit as a percentage of net sales.", source: "Bills, returns, stock movements" },
+  expenses: { label: "Expenses", how: "Approved expenses dated in this period. Waiting or rejected ones are left out.", source: "Expenses" },
+  stock_written_off: { label: "Stock written off", how: "Cost of damaged, expired, lost or own-use stock, less any stock found.", source: "Stock adjustments" },
+  net_profit: { label: "Net profit", how: "Gross profit minus expenses minus stock written off, plus other income from journals.", source: "Bills, returns, stock, expenses, journals" },
+  purchases_total: { label: "Purchases", how: "Supplier bills dated in this period, with GST. Purchases add to stock; they are not an expense.", source: "Purchases" },
+  credit_sales: { label: "Udhaar given", how: "Part of bills put on the customer's khata. Not counted as money received.", source: "Bills" },
+  collections: { label: "Money received", how: "Cash, UPI, card and bank received on bills, plus udhaar payments received. A split bill adds each part to its own method once.", source: "Bills, khata payments" },
+  customer_outstanding: { label: "Customer dues", how: "What customers owe right now: opening balance plus udhaar bills, minus payments and khata refunds.", source: "Khata" },
+  supplier_outstanding: { label: "Supplier dues", how: "What you owe suppliers right now: opening balance plus purchases, minus payments and returns.", source: "Purchases, supplier payments" },
+  inventory_value: { label: "Stock value", how: "Stock in hand times the latest purchase cost of each product.", source: "Products" },
+  inventory_mrp_value: { label: "Stock value at MRP", how: "Stock in hand times MRP (or selling price with GST when there is no MRP). What it could sell for, before discounts.", source: "Products" },
+  dead_stock: { label: "Not moving", how: "Products in stock that sold nothing in the dates you picked, and the cost value of that stock.", source: "Products, bills" },
+  fast_movers: { label: "Fast moving", how: "The top 20% of products by units sold in the dates you picked. Slow moving is the bottom 30% of products that sold at least once.", source: "Bills" },
+  days_cover: { label: "Days of stock", how: "Stock in hand divided by average units sold per day (after returns) in the dates you picked.", source: "Products, bills, returns" },
+  expiry_value: { label: "Value at risk", how: "Estimated pieces still on the shelf from each batch, times the latest purchase cost. Assumes the earliest expiry is sold first.", source: "Batches, products" },
+  stock_in: { label: "Stock in", how: "Pieces added: purchases, customer returns, stock found and opening stock. Valued at the cost saved with each change.", source: "Stock movements" },
+  stock_out: { label: "Stock out", how: "Pieces removed: sales, returns to suppliers and stock written off. Valued at the cost saved with each change.", source: "Stock movements" },
+  purchases_taxable: { label: "Purchases without GST", how: "Supplier bills dated in this period, before GST.", source: "Purchases" },
+  purchase_gst: { label: "GST on purchases", how: "GST charged on supplier bills dated in this period (input tax).", source: "Purchases" },
+  supplier_paid: { label: "Paid to suppliers", how: "Supplier payments recorded in these dates, whatever bill they were for.", source: "Supplier payments" },
+  purchase_returns: { label: "Returns to suppliers", how: "Goods sent back to suppliers in these dates, with GST.", source: "Purchase returns" },
+  output_gst: { label: "Output GST", how: "GST on sale bills in these dates, less GST on returns (credit notes) in these dates. CGST and SGST are half each; interstate bills are IGST.", source: "Sale lines, return lines" },
+  input_gst: { label: "Input GST", how: "GST on supplier bills dated in these dates, less GST on returns to suppliers. IGST when the supplier's state (or GSTIN) differs from the store's. Not the same as claimable credit (GSTR-2B).", source: "Purchase lines, purchase return lines" },
+  net_gst: { label: "Net GST (indicative)", how: "Output GST minus input GST. A working figure only, not a GST return.", source: "Output and input GST" },
+  staff_net_sales: { label: "Staff net sales", how: "Sales before GST on bills the person made, less the before-GST value of returns they handled.", source: "Bills, returns" },
+  sales_per_hour: { label: "Sales per hour", how: "Staff net sales divided by hours their register sessions were open (open sessions count up to now). Shown for at least 15 minutes on the register.", source: "Bills, register sessions" },
+};
+
+export const COST_MISSING_NOTE =
+  "Some bill lines have no saved purchase cost (usually bills made before the stock ledger was added). Their sales are left out of profit rather than guessed.";

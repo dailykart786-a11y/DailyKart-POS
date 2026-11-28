@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+import { stateName, type Invoice } from '@/lib/invoice';
 
 interface InvoiceData {
   invoice_number: string;
@@ -126,6 +127,75 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): string => {
   addCenteredText('Customer Care: +91-9966160298', 6);
   addCenteredText('Rate us on Google for better service', 6);
 
+  return doc.output('datauristring');
+};
+
+// GST bill with shop details, HSN and CGST/SGST (or IGST) split
+export const generateGstInvoicePDF = (inv: Invoice): string => {
+  const height = 120 + inv.lines.length * 9 + inv.taxRows.length * 5;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, Math.max(160, height)] });
+  const W = 80;
+  let y = 8;
+  const font = (size: number, bold = false) => { doc.setFontSize(size); doc.setFont('helvetica', bold ? 'bold' : 'normal'); };
+  const center = (t: string, size = 8, bold = false) => {
+    font(size, bold);
+    for (const part of doc.splitTextToSize(t, W - 8) as string[]) {
+      doc.text(part, (W - doc.getTextWidth(part)) / 2, y);
+      y += size * 0.45 + 1.5;
+    }
+  };
+  const left = (t: string, size = 8, bold = false) => { font(size, bold); doc.text(t, 4, y); y += size * 0.45 + 1.5; };
+  const lr = (l: string, r: string, size = 8, bold = false) => {
+    font(size, bold); doc.text(l, 4, y); doc.text(r, W - 4 - doc.getTextWidth(r), y); y += size * 0.45 + 1.5;
+  };
+  const cols = (vals: string[], size = 7, bold = false) => {
+    font(size, bold);
+    const xs = vals.length === 3 ? [4, 34, 76] : [4, 30, 53, 76];
+    vals.forEach((v, i) => i === 0 ? doc.text(v, xs[i], y) : doc.text(v, xs[i] - doc.getTextWidth(v), y));
+    y += size * 0.45 + 1.5;
+  };
+  const dash = () => { for (let x = 4; x < W - 4; x += 3) doc.line(x, y, x + 1, y); y += 3.5; };
+  const m = (n: number) => n.toFixed(2);
+  const s = inv.store;
+
+  center(s.business_name, 13, true);
+  if (s.address) center(s.address, 7);
+  if (s.phone) center(`Ph: ${s.phone}`, 7);
+  if (s.email) center(s.email, 7);
+  if (s.gstin) center(`GSTIN: ${s.gstin}`, 8, true);
+  const st = stateName(s.state_code);
+  if (st) center(`State: ${st} (${s.state_code})`, 7);
+  dash();
+  center('TAX INVOICE', 11, true);
+  const d = new Date(inv.createdAt || Date.now());
+  lr(`Bill: ${inv.invoiceNumber}`, d.toLocaleDateString('en-IN'), 8);
+  if (inv.customerName) left(`Customer: ${inv.customerName}`, 8);
+  if (inv.customerGstin) left(`Customer GSTIN: ${inv.customerGstin}`, 8);
+  dash();
+  for (const l of inv.lines) {
+    left(l.name, 8, true);
+    const info = `${l.quantity} x ${m(l.rate)}${l.discountPercent ? ` (-${l.discountPercent}%)` : ''}${l.hsn ? ` HSN ${l.hsn}` : ''} GST ${l.gstRate}%`;
+    lr(info, m(l.total), 7);
+  }
+  dash();
+  lr('Taxable value', m(inv.taxable), 8);
+  if (inv.discount > 0) lr('(Discount given', `${m(inv.discount)})`, 7);
+  if (inv.interstate) lr('IGST', m(inv.igst), 8);
+  else { lr('CGST', m(inv.cgst), 8); lr('SGST', m(inv.sgst), 8); }
+  dash();
+  lr('TOTAL', `Rs.${m(inv.total)}`, 11, true);
+  center(`Paid by ${inv.paymentMethod}`, 8);
+  dash();
+  center('GST summary', 8, true);
+  if (inv.interstate) {
+    cols(['GST%', 'Taxable', 'IGST'], 7, true);
+    inv.taxRows.forEach(r => cols([`${r.rate}%`, m(r.taxable), m(r.igst)]));
+  } else {
+    cols(['GST%', 'Taxable', 'CGST', 'SGST'], 7, true);
+    inv.taxRows.forEach(r => cols([`${r.rate}%`, m(r.taxable), m(r.cgst), m(r.sgst)]));
+  }
+  dash();
+  center(s.bill_footer || 'Thank you for shopping! Visit again.', 7);
   return doc.output('datauristring');
 };
 

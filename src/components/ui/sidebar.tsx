@@ -204,7 +204,8 @@ const Sidebar = React.forwardRef<
             }
             side={side}
           >
-            <div className="flex h-full w-full flex-col">{children}</div>
+            {/* Keep the menu clear of the phone's status bar and home bar */}
+            <div className="flex h-full w-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]">{children}</div>
           </SheetContent>
         </Sheet>
       )

@@ -1,5 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { TwoStepGate } from '@/components/TwoStepGate';
+import { FullPageLoader } from '@/components/feedback/FullPageLoader';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -9,16 +11,12 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-secondary/30">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <FullPageLoader />;
   }
 
   if (!user) {
     return <Navigate to="/auth" replace />;
   }
 
-  return <>{children}</>;
+  return <TwoStepGate userId={user.id}>{children}</TwoStepGate>;
 }

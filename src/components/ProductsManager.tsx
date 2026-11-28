@@ -7,9 +7,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { useStore, inStore } from "@/hooks/useStore";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Edit, Trash2, Package } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Barcode, Wand2, FileUp, Download, ScanLine } from "lucide-react";
+import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
+import { ProductImportDialog } from "@/components/ProductImportDialog";
+import { downloadCsv } from "@/lib/gstReport";
+import { generateShopBarcode, printLabels } from "@/lib/labels";
 import {
   Table,
   TableBody,
@@ -41,7 +46,11 @@ interface Product {
   category: string | null;
   is_active: boolean | null;
   min_stock_level: number | null;
+  sold_by?: string | null; // newer database only
+  plu_code?: string | null;
   gst_rate: number | null;
+  hsn_code?: string | null;
+  mrp?: number | null;
   image_url: string | null;
 }
 
@@ -52,6 +61,7 @@ const categories = [
 
 export function ProductsManager() {
   const { user } = useAuth();
+  const { filterStoreId, newRecordFields } = useStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -61,6 +71,8 @@ export function ProductsManager() {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [costPrice, setCostPrice] = useState("");
+  const [mrp, setMrp] = useState("");
+  const [duplicates, setDuplicates] = useState<{ kind: string; code: string; names: string[] }[]>([]);
   const [oldPurchasePrice, setOldPurchasePrice] = useState("");
   const [newPurchasePrice, setNewPurchasePrice] = useState("");
   const [baseUnit, setBaseUnit] = useState("pc");
@@ -71,21 +83,28 @@ export function ProductsManager() {
   const [category, setCategory] = useState("");
   const [minStockLevel, setMinStockLevel] = useState("");
   const [gstRate, setGstRate] = useState("");
+  const [hsnCode, setHsnCode] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [soldBy, setSoldBy] = useState("piece");
+  const [pluCode, setPluCode] = useState("");
   
   // Unit calculator state
   const [showUnitCalculator, setShowUnitCalculator] = useState(false);
   const [calculatedUnits, setCalculatedUnits] = useState<UnitVariant[]>([]);
 
+  const [showImport, setShowImport] = useState(false);
+  // Camera: "field" fills the barcode box in the form, "find" opens the product with that barcode
+  const [scanFor, setScanFor] = useState<null | "field" | "find">(null);
+
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [filterStoreId]);
 
   const fetchProducts = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await inStore(supabase
         .from('products')
-        .select('*')
+        .select('*'), filterStoreId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -94,6 +113,9 @@ export function ProductsManager() {
         unit_variants: p.unit_variants ? (p.unit_variants as unknown as UnitVariant[]) : null
       }));
       setProducts(productsWithParsedVariants);
+      // Duplicate SKU / barcode warning (needs the database update; optional)
+      inStore(supabase.from('duplicate_product_codes' as any).select('kind, code, names'), filterStoreId)
+        .then(({ data, error: dErr }: any) => setDuplicates(dErr ? [] : (data || [])), () => setDuplicates([]));
     } catch (error) {
       toast({
         title: "Error",
@@ -109,6 +131,7 @@ export function ProductsManager() {
     setName("");
     setPrice("");
     setCostPrice("");
+    setMrp("");
     setOldPurchasePrice("");
     setNewPurchasePrice("");
     setBaseUnit("pc");
@@ -119,7 +142,10 @@ export function ProductsManager() {
     setCategory("");
     setMinStockLevel("");
     setGstRate("");
+    setHsnCode("");
     setImageUrl("");
+    setSoldBy("piece");
+    setPluCode("");
     setCalculatedUnits([]);
     setShowUnitCalculator(false);
     setEditingProduct(null);
@@ -189,8 +215,18 @@ export function ProductsManager() {
     e.preventDefault();
     if (!user) return;
 
+    const mrpValue = mrp.trim() ? parseFloat(mrp) : null;
+    if (mrpValue !== null && !(mrpValue >= 0)) {
+      toast({ title: "Check the MRP", variant: "destructive" });
+      return;
+    }
+    if (mrpValue !== null && parseFloat(price) > mrpValue) {
+      toast({ title: "Selling price is above MRP", description: `Selling above MRP (₹${mrpValue}) is not allowed`, variant: "destructive" });
+      return;
+    }
+
     try {
-      const productData = {
+      const productData: Record<string, any> = {
         name,
         price: parseFloat(price),
         cost_price: parseFloat(costPrice),
@@ -199,39 +235,65 @@ export function ProductsManager() {
         base_unit: baseUnit || 'pc',
         base_unit_quantity: baseUnitQuantity ? parseFloat(baseUnitQuantity) : 1,
         unit_variants: calculatedUnits.length > 0 ? (calculatedUnits as any) : null,
-        stock_quantity: stockQuantity ? parseInt(stockQuantity) : 0,
+        stock_quantity: stockQuantity ? (soldBy === 'piece' ? parseInt(stockQuantity) : Math.round(parseFloat(stockQuantity) * 1000) / 1000) : 0,
         sku,
         barcode: barcode || null,
         category: category || null,
-        min_stock_level: minStockLevel ? parseInt(minStockLevel) : 10,
+        min_stock_level: minStockLevel ? (soldBy === 'piece' ? parseInt(minStockLevel) : parseFloat(minStockLevel)) : 10,
         gst_rate: gstRate ? parseFloat(gstRate) : 0,
         image_url: imageUrl || null,
         is_active: true
       };
-
-      if (editingProduct) {
-        const { error } = await supabase
-          .from('products')
-          .update(productData)
-          .eq('id', editingProduct.id);
-
-        if (error) throw error;
-        toast({ title: "Success", description: "Product updated successfully" });
-      } else {
-        const { error } = await supabase
-          .from('products')
-          .insert(productData);
-
-        if (error) throw error;
-        toast({ title: "Success", description: "Product added successfully" });
+      // Only send MRP when there is one, so saving works before the database update
+      if (mrpValue !== null || editingProduct?.mrp != null) productData.mrp = mrpValue;
+      // Loose goods: only sent when used, so saving works before the database update
+      if (soldBy !== 'piece' || (editingProduct?.sold_by && editingProduct.sold_by !== 'piece')) productData.sold_by = soldBy;
+      if (pluCode.trim() || editingProduct?.plu_code) productData.plu_code = pluCode.trim() || null;
+      // Only send HSN when there is one, so saving still works before the GST database update
+      if (hsnCode.trim() || editingProduct?.hsn_code) {
+        productData.hsn_code = hsnCode.trim().replace(/\s/g, '') || null;
       }
+
+      const save = (data: Record<string, any>) => editingProduct
+        ? supabase.from('products').update(data as any).eq('id', editingProduct.id)
+        : supabase.from('products').insert({ ...data, ...newRecordFields } as any);
+
+      let { error } = await save(productData);
+      if (error && 'hsn_code' in productData && /hsn_code/.test(error.message || '')) {
+        // Database doesn't have the HSN column yet: save everything else
+        const { hsn_code, ...rest } = productData;
+        ({ error } = await save(rest));
+        if (!error) toast({ title: "HSN not saved", description: "Ask your admin to run the GST database update to store HSN codes" });
+      }
+      if (error && 'mrp' in productData && /mrp/.test(error.message || '')) {
+        const { mrp: _m, ...rest } = productData;
+        ({ error } = await save(rest));
+        if (!error) toast({ title: "MRP not saved", description: "Ask your admin to run the latest database update to store MRP" });
+      }
+      if (error && ('sold_by' in productData || 'plu_code' in productData) && /sold_by|plu_code/.test(error.message || '')) {
+        const { sold_by: _s, plu_code: _p, ...rest } = productData;
+        if (soldBy !== 'piece') {
+          toast({ title: "Loose goods need the database update", description: "Run the latest dailykart-updates.sql, then set this product as sold by weight", variant: "destructive" });
+          return;
+        }
+        ({ error } = await save(rest));
+      }
+      if (error && /uq_products_plu/.test(error.message || '')) {
+        toast({ title: "Scale code already used", description: "Another product in this store has this scale item code", variant: "destructive" });
+        return;
+      }
+      if (error) throw error;
+      toast({ title: "Success", description: editingProduct ? "Product updated successfully" : "Product added successfully" });
 
       resetForm();
       fetchProducts();
-    } catch (error) {
+    } catch (error: any) {
+      const dup = error?.code === '23505';
       toast({
-        title: "Error",
-        description: "Failed to save product",
+        title: dup ? "Already in use" : "Error",
+        description: dup
+          ? `Another product in this store already has this ${/barcode/.test(error.message || '') ? 'barcode' : 'SKU'}`
+          : "Failed to save product",
         variant: "destructive"
       });
     }
@@ -242,6 +304,7 @@ export function ProductsManager() {
     setName(product.name);
     setPrice(product.price.toString());
     setCostPrice(product.cost_price.toString());
+    setMrp(product.mrp != null ? String(product.mrp) : "");
     setOldPurchasePrice(product.old_purchase_price?.toString() || "");
     setNewPurchasePrice(product.new_purchase_price?.toString() || "");
     setBaseUnit(product.base_unit || "pc");
@@ -253,7 +316,10 @@ export function ProductsManager() {
     setCategory(product.category || "");
     setMinStockLevel(product.min_stock_level?.toString() || "");
     setGstRate(product.gst_rate?.toString() || "");
+    setHsnCode(product.hsn_code || "");
     setImageUrl(product.image_url || "");
+    setSoldBy(product.sold_by || "piece");
+    setPluCode(product.plu_code || "");
     setShowForm(true);
   };
 
@@ -266,7 +332,17 @@ export function ProductsManager() {
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        // Products on old bills are kept for the records: hide instead of delete
+        if (error.code === '23503' || /foreign key|violates/i.test(error.message || '')) {
+          const { error: hideErr } = await supabase.from('products').update({ is_active: false } as any).eq('id', id);
+          if (hideErr) throw hideErr;
+          toast({ title: "Product hidden", description: "It is on past bills, so it was hidden from billing instead of deleted. Edit and save it to bring it back." });
+          fetchProducts();
+          return;
+        }
+        throw error;
+      }
       toast({ title: "Success", description: "Product deleted successfully" });
       fetchProducts();
     } catch (error) {
@@ -284,18 +360,76 @@ export function ProductsManager() {
     return <Badge variant="secondary">In Stock</Badge>;
   };
 
+  const onScan = (code: string) => {
+    const c = code.trim();
+    if (!c) return false;
+    if (scanFor === "field") {
+      setBarcode(c);
+      return `Barcode ${c} filled in`;
+    }
+    const found = products.find(p => (p.barcode || "").trim() === c) || products.find(p => p.sku.trim().toLowerCase() === c.toLowerCase());
+    if (found) {
+      handleEdit(found);
+      return `Opened ${found.name}`;
+    }
+    resetForm();
+    setEditingProduct(null);
+    setBarcode(c);
+    setShowForm(true);
+    return `New product with barcode ${c}`;
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <BarcodeScannerDialog
+        open={scanFor !== null}
+        onOpenChange={(o) => { if (!o) setScanFor(null); }}
+        onDetected={onScan}
+        single
+        title={scanFor === "field" ? "Scan the product's barcode" : "Scan a product"}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold">Product Management</h2>
           <p className="text-muted-foreground">Manage your inventory and product catalog</p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          {editingProduct ? "Cancel Edit" : "Add Product"}
-        </Button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Button variant="outline" onClick={() => setScanFor("find")} className="gap-2" title="Scan a barcode to open that product, or add it if it's new">
+            <ScanLine className="h-4 w-4" /> Scan
+          </Button>
+          <Button variant="outline" onClick={() => setShowImport(true)} className="gap-2">
+            <FileUp className="h-4 w-4" /> Import Excel
+          </Button>
+          <Button variant="outline" className="gap-2" disabled={!products.length} onClick={() => downloadCsv(`products-${new Date().toISOString().slice(0, 10)}.csv`, products.map(p => ({
+            Name: p.name, SKU: p.sku, Barcode: p.barcode || "", Category: p.category || "", Price: p.price, "Cost price": p.cost_price,
+            "GST %": p.gst_rate ?? 0, HSN: p.hsn_code || "", Stock: p.stock_quantity ?? 0, "Min stock": p.min_stock_level ?? 0, Unit: (p as any).base_unit || "pc",
+          })))}>
+            <Download className="h-4 w-4" /> Export
+          </Button>
+          <Button onClick={() => setShowForm(!showForm)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            {editingProduct ? "Cancel Edit" : "Add Product"}
+          </Button>
+        </div>
       </div>
+
+      <ProductImportDialog
+        open={showImport}
+        onOpenChange={setShowImport}
+        existing={products.map(p => ({ id: p.id, name: p.name, sku: p.sku, barcode: p.barcode, location_id: (p as any).location_id }))}
+        onDone={fetchProducts}
+      />
+
+      {duplicates.length > 0 && (
+        <Card className="border-destructive">
+          <CardContent className="p-4 text-sm space-y-1">
+            <p className="font-medium text-destructive">Some products share the same code. Fix them so scanning picks the right item:</p>
+            {duplicates.slice(0, 10).map((d) => (
+              <p key={d.kind + d.code}>{d.kind === 'barcode' ? 'Barcode' : 'SKU'} {d.code}: {d.names.join(', ')}</p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add/Edit Product Form */}
       {showForm && (
@@ -337,6 +471,20 @@ export function ProductsManager() {
                     placeholder="Enter selling price"
                     required
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mrp">MRP (₹)</Label>
+                  <Input
+                    id="mrp"
+                    type="number"
+                    step="0.01"
+                    value={mrp}
+                    onChange={(e) => setMrp(e.target.value)}
+                    placeholder="Printed MRP (optional)"
+                  />
+                  {mrp && price && parseFloat(price) > parseFloat(mrp) && (
+                    <p className="text-xs text-destructive">Selling price is above MRP</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="costPrice">Cost Price (₹) *</Label>
@@ -402,10 +550,29 @@ export function ProductsManager() {
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="stockQuantity">Stock Quantity</Label>
+                  <Label>Sold by</Label>
+                  <Select value={soldBy} onValueChange={setSoldBy}>
+                    <SelectTrigger aria-label="Sold by"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="piece">Piece / packet</SelectItem>
+                      <SelectItem value="weight">Loose, by weight (price per kg)</SelectItem>
+                      <SelectItem value="volume">Loose, by volume (price per litre)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {soldBy !== "piece" && <p className="text-xs text-muted-foreground">Stock and bills are in {soldBy === "weight" ? "kg" : "litres"}, like 0.750</p>}
+                </div>
+                {soldBy !== "piece" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="pluCode">Scale item code (PLU)</Label>
+                    <Input id="pluCode" inputMode="numeric" value={pluCode} onChange={(e) => setPluCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Same code as on the weighing scale" />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="stockQuantity">Stock Quantity{soldBy !== "piece" ? (soldBy === "weight" ? " (kg)" : " (L)") : ""}</Label>
                   <Input
                     id="stockQuantity"
                     type="number"
+                    step={soldBy === "piece" ? "1" : "0.001"}
                     value={stockQuantity}
                     onChange={(e) => setStockQuantity(e.target.value)}
                     placeholder="Enter stock quantity"
@@ -447,13 +614,31 @@ export function ProductsManager() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="barcode">Barcode</Label>
+                <Label htmlFor="hsnCode">HSN code</Label>
                 <Input
-                  id="barcode"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="Enter barcode"
+                  id="hsnCode"
+                  value={hsnCode}
+                  onChange={(e) => setHsnCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
+                  placeholder="e.g. 1006 for rice"
+                  inputMode="numeric"
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="barcode">Barcode</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="barcode"
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    placeholder="Scan or type the barcode"
+                  />
+                  <Button type="button" variant="outline" size="icon" onClick={() => setScanFor("field")} className="shrink-0" aria-label="Scan barcode with camera" title="Scan with camera">
+                    <ScanLine className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setBarcode(generateShopBarcode())} className="gap-1 shrink-0" title="Make a barcode for items that don't have one">
+                    <Wand2 className="h-4 w-4" /> New
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="imageUrl">Product Image URL</Label>
@@ -572,7 +757,7 @@ export function ProductsManager() {
                           />
                         )}
                         <div>
-                          <p className="font-medium">{product.name}</p>
+                          <p className="font-medium">{product.name}{product.is_active === false && <Badge variant="outline" className="ml-2">Hidden</Badge>}</p>
                           <p className="text-sm text-muted-foreground">{product.sku}</p>
                         </div>
                       </div>
@@ -629,7 +814,7 @@ export function ProductsManager() {
                     </TableCell>
                     <TableCell>
                       <span className={product.stock_quantity && product.min_stock_level && product.stock_quantity <= product.min_stock_level ? "text-warning font-medium" : ""}>
-                        {product.stock_quantity || 0}
+                        {product.stock_quantity || 0}{product.sold_by === 'weight' ? ' kg' : product.sold_by === 'volume' ? ' L' : ''}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -644,6 +829,20 @@ export function ProductsManager() {
                           onClick={() => handleEdit(product)}
                         >
                           <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Print barcode label"
+                          aria-label="Print barcode label"
+                          onClick={() => {
+                            if (!printLabels([{ product, copies: 1 }])) {
+                              toast({ title: "Can't print label", description: "Add a barcode or SKU, and allow pop-ups for this site", variant: "destructive" });
+                            }
+                          }}
+                        >
+                          <Barcode className="h-3 w-3" />
                         </Button>
                         <Button 
                           variant="destructive" 

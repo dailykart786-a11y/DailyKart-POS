@@ -6,11 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ROLE_OPTIONS, roleBadgeClass, roleLabel } from "@/lib/roles";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Users, Shield, Eye, EyeOff, Edit, Trash2 } from "lucide-react";
 import { UserEditDialog } from "@/components/UserEditDialog";
+import { StoresManager } from "@/components/StoresManager";
+import { RolePermissionsCard } from "@/components/RolePermissionsCard";
+import { callAdminUsers } from "@/lib/adminUsers";
 import {
   Table,
   TableBody,
@@ -131,28 +135,18 @@ export default function UserManagement() {
     }
 
     try {
-      // Create user with Supabase Auth
-      const { data, error } = await supabase.auth.admin.createUser({
+      // The sign-in service knows admin / manager / cashier; newer roles are set right after
+      const basicRole = ["admin", "manager", "cashier"].includes(newUserRole) ? newUserRole : "cashier";
+      const created: any = await callAdminUsers({
+        action: "create",
         email: newUserEmail,
         password: newUserPassword,
-        user_metadata: {
-          full_name: newUserName
-        },
-        email_confirm: true
+        fullName: newUserName,
+        role: basicRole,
       });
-
-      if (error) throw error;
-
-      // Create user role
-      if (data.user) {
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .insert({
-            user_id: data.user.id,
-            role: newUserRole
-          });
-
-        if (roleError) throw roleError;
+      if (basicRole !== newUserRole && created?.userId) {
+        const { error: roleErr } = await supabase.from('user_roles').update({ role: newUserRole } as any).eq('user_id', created.userId);
+        if (roleErr) toast({ title: "User created as cashier", description: `Couldn't set ${roleLabel(newUserRole)}: ${roleErr.message}. Edit the user to change it.`, variant: "destructive" });
       }
 
       toast({
@@ -183,12 +177,7 @@ export default function UserManagement() {
   };
 
   const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'admin': return 'bg-red-100 text-red-800';
-      case 'manager': return 'bg-blue-100 text-blue-800';
-      case 'cashier': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+    return roleBadgeClass(role);
   };
 
   const handleEditUser = (profile: Profile) => {
@@ -200,32 +189,20 @@ export default function UserManagement() {
     if (!window.confirm(`Are you sure you want to delete ${profile.full_name || 'this user'}?`)) return;
     
     try {
-      // Delete user role first
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', profile.user_id);
-
-      if (roleError) throw roleError;
-
-      // Delete profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', profile.id);
-
-      if (profileError) throw profileError;
+      const res = await callAdminUsers({ action: "delete", userId: profile.user_id });
 
       toast({
         title: "Success",
-        description: "User deleted successfully"
+        description: res.result === "deactivated"
+          ? "This user has past records, so their login was blocked instead of deleted."
+          : "User removed successfully"
       });
 
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to delete user",
+        description: error.message || "Failed to delete user",
         variant: "destructive"
       });
     }
@@ -321,9 +298,7 @@ export default function UserManagement() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cashier">Cashier</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
+                      {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -431,7 +406,7 @@ export default function UserManagement() {
                       </TableCell>
                       <TableCell>
                         <Badge className={getRoleBadgeColor(getUserRole(profile.user_id))}>
-                          {getUserRole(profile.user_id).charAt(0).toUpperCase() + getUserRole(profile.user_id).slice(1)}
+                          {roleLabel(getUserRole(profile.user_id))}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -467,6 +442,11 @@ export default function UserManagement() {
             )}
           </CardContent>
         </Card>
+
+        {/* Stores */}
+        <StoresManager />
+
+        <RolePermissionsCard />
 
         {/* Role Permissions */}
         <Card>

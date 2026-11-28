@@ -4,8 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ROLE_OPTIONS } from "@/lib/roles";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { callAdminUsers } from "@/lib/adminUsers";
+import { useStore } from "@/hooks/useStore";
 
 interface Profile {
   id: string;
@@ -28,6 +31,9 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
   const [email, setEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const { stores } = useStore();
+  const [storeId, setStoreId] = useState<string>("");
+  const [originalStoreId, setOriginalStoreId] = useState<string>("");
 
   // Reset form when user changes
   useEffect(() => {
@@ -36,6 +42,17 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
       setRole(userRole || "cashier");
       setEmail("");
       setNewPassword("");
+      setStoreId("");
+      setOriginalStoreId("");
+      supabase
+        .from('user_location_assignments')
+        .select('location_id')
+        .eq('user_id', user.user_id)
+        .maybeSingle()
+        .then(({ data }) => {
+          setStoreId(data?.location_id || "");
+          setOriginalStoreId(data?.location_id || "");
+        });
     }
   }, [user, userRole]);
 
@@ -74,26 +91,22 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
         if (roleInsertError) throw roleInsertError;
       }
 
-      // Update email if provided
-      if (email.trim()) {
-        const { error: emailError } = await supabase.auth.admin.updateUserById(
-          user.user_id,
-          { email: email.trim() }
-        );
-        if (emailError) {
-          console.log('Email update not available in client SDK');
-        }
+      // Move the user to another store
+      if (storeId && storeId !== originalStoreId) {
+        const { error: storeError } = await supabase
+          .from('user_location_assignments')
+          .upsert({ user_id: user.user_id, location_id: storeId }, { onConflict: 'user_id' });
+        if (storeError) throw storeError;
       }
 
-      // Update password if provided
-      if (newPassword.trim()) {
-        const { error: passwordError } = await supabase.auth.admin.updateUserById(
-          user.user_id,
-          { password: newPassword.trim() }
-        );
-        if (passwordError) {
-          console.log('Password update not available in client SDK');
-        }
+      // Update email / password through the admin-users function
+      if (email.trim() || newPassword.trim()) {
+        await callAdminUsers({
+          action: "update",
+          userId: user.user_id,
+          email: email.trim() || undefined,
+          password: newPassword.trim() || undefined,
+        });
       }
 
       toast({
@@ -103,10 +116,10 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
 
       onSave();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to update user",
+        description: error.message || "Failed to update user",
         variant: "destructive"
       });
     } finally {
@@ -157,12 +170,26 @@ export function UserEditDialog({ user, userRole, onClose, onSave }: UserEditDial
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cashier">Cashier</SelectItem>
-                <SelectItem value="manager">Manager</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
+                {ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
+          {stores.length > 1 && (
+            <div className="space-y-2">
+              <Label>Store</Label>
+              <Select value={storeId} onValueChange={setStoreId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select store" />
+                </SelectTrigger>
+                <SelectContent>
+                  {stores.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Cashiers and managers only see this store's products, bills and customers.</p>
+            </div>
+          )}
           <div className="flex gap-2">
             <Button onClick={handleSave} disabled={loading}>
               {loading ? "Saving..." : "Save Changes"}
