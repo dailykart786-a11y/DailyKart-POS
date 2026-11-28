@@ -24,6 +24,8 @@ import { SalesExplorer } from "@/components/reports/ExploreView";
 import { GstSummary, StaffPerformance } from "@/components/reports/GstStaffViews";
 import { KhataAgeing, PaymentRegisterView, RegisterVariance } from "@/components/reports/KhataPaymentViews";
 import { PurchaseReport, StockExpiry, StockMovementReport, StockReport } from "@/components/reports/StockPurchaseViews";
+import { InvoiceSalesView } from "@/components/reports/InvoiceSalesView";
+import { SavedReportsView } from "@/components/reports/SavedReportsView";
 import { useStore } from "@/hooks/useStore";
 import { isoDate } from "@/lib/reports/api";
 import { DEFAULT_REPORT, findReport } from "@/lib/reports/catalog";
@@ -39,6 +41,7 @@ const VIEWS: Record<string, (p: { ctx: ReportCtx }) => JSX.Element> = {
   "sales.cashier": SalesCashier,
   "sales.returns": SalesReturns,
   "sales.credit": SalesCredit,
+  "sales.invoices": InvoiceSalesView,
   "pl.statement": PLStatement,
   "pl.trend": PLTrend,
   "pl.category": ProfitCategory,
@@ -58,6 +61,7 @@ const VIEWS: Record<string, (p: { ctx: ReportCtx }) => JSX.Element> = {
   "pay.register": RegisterVariance,
   "gst.summary": GstSummary,
   "staff.performance": StaffPerformance,
+  "saved.list": SavedReportsView,
 };
 
 const toPicker = (r: Range): DateRange => ({ from: new Date(r.from + "T00:00:00"), to: new Date(r.to + "T00:00:00") });
